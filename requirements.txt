@@ -45,9 +45,8 @@ httpx
 
 aiosmtplib
 aiofiles
-# git+https://github.com/phamdinhkhanh/vnquant.git
+git+https://github.com/phamdinhkhanh/vnquant.git
 
 websocket-client
 
-vnquant
 
