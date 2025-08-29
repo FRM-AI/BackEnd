@@ -1,0 +1,50 @@
+# FastAPI Dependencies
+fastapi
+uvicorn[standard]
+pydantic
+jinja2
+python-multipart
+
+# Database and Authentication
+supabase
+python-jose[cryptography]
+passlib[bcrypt]
+bcrypt
+PyJWT
+
+# Existing Flask dependencies (for compatibility)
+flask
+flask-cors
+
+# Data science and financial libraries
+pandas
+numpy
+yfinance
+ta
+PyPortfolioOpt
+scikit-learn
+
+# Other existing dependencies
+requests
+beautifulsoup4
+python-dateutil
+tenacity
+
+# Google Generative AI
+google-generativeai
+
+# Environment and utilities
+python-dotenv
+email-validator
+python-slugify
+
+# Development and testing
+pytest
+pytest-asyncio
+httpx
+
+aiosmtplib
+aiofiles
+# git+https://github.com/phamdinhkhanh/vnquant.git
+
+websocket-client
