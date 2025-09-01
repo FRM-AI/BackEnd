@@ -527,7 +527,7 @@ async def register(user_data: UserRegister, response: Response):
         value=result["session_id"],
         httponly=True,
         max_age=60*60*24,  # 24 hours
-        samesite="lax",
+        samesite="none",
         secure=False,  # Set to True in production with HTTPS
         path='/'
     )
@@ -2024,3 +2024,4 @@ if __name__ == '__main__':
         access_log=True,
         log_level="info"
     )
+
