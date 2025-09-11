@@ -525,7 +525,7 @@ async def register(user_data: UserRegister, response: Response):
     response.set_cookie(
         key="session_id",
         value=result["session_id"],
-        httponly=False,
+        httponly=True,
         max_age=60*60*24,  # 24 hours
         samesite="none",
         secure=True,  # Set to True in production with HTTPS
