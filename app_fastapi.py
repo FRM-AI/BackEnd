@@ -398,7 +398,7 @@ app.add_middleware(GZipMiddleware, minimum_size=1000)
 # Add trusted host middleware for production security
 app.add_middleware(
     TrustedHostMiddleware, 
-    allowed_hosts=["localhost", "127.0.0.1", "*.vercel.app", "your-domain.com", "*"]
+    allowed_hosts=["localhost", "127.0.0.1", "*.vercel.app", "https://frm-ai-fe-0c4c7014ba75.herokuapp.com", "*"]
 )
 
 # Performance monitoring middleware
@@ -2024,6 +2024,7 @@ if __name__ == '__main__':
         access_log=True,
         log_level="info"
     )
+
 
 
 
