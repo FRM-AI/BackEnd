@@ -544,16 +544,13 @@ async def login(login_data: UserLogin, response: Response):
     result = await auth_manager.login_user(login_data)
     
     # Set session cookie
-    response.set_cookie(
+    response.delete_cookie(
         key="session_id",
-        value=result["session_id"],
-        httponly=True,
-        max_age=60*60*24,  # 24 hours
-        samesite="none",
-        secure=True,  # Set to True in production with HTTPS
-        path='/'
+        path="/",
+        secure=True,
+        samesite="none"
     )
-    
+
     # Remove session_id from response body for security
     return {
         "user": result["user"],
@@ -570,7 +567,13 @@ async def logout(response: Response, current_user: Optional[UserWithWallet] = De
         pass
     
     # Delete session cookie
-    response.delete_cookie("session_id", path='/')
+    response.delete_cookie(key="session_id",
+        httponly=True,
+        max_age=60*60*24,  # 24 hours
+        samesite="none",
+        secure=True,  # Set to True in production with HTTPS
+        path='/'
+    )
     return {"message": "Đã đăng xuất"}
 
 @app.get("/api/auth/me", response_model=UserWithWallet)
