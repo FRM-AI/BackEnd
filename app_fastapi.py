@@ -544,13 +544,16 @@ async def login(login_data: UserLogin, response: Response):
     result = await auth_manager.login_user(login_data)
     
     # Set session cookie
-    response.delete_cookie(
+    response.set_cookie(
         key="session_id",
-        path="/",
-        secure=True,
-        samesite="none"
+        value=result["session_id"],
+        httponly=True,
+        max_age=60*60*24,  # 24 hours
+        samesite="none",
+        secure=True,  # Set to True in production with HTTPS
+        path='/'
     )
-
+    
     # Remove session_id from response body for security
     return {
         "user": result["user"],
@@ -567,12 +570,11 @@ async def logout(response: Response, current_user: Optional[UserWithWallet] = De
         pass
     
     # Delete session cookie
-    response.delete_cookie(key="session_id",
-        httponly=True,
-        max_age=60*60*24,  # 24 hours
-        samesite="none",
-        secure=True,  # Set to True in production with HTTPS
-        path='/'
+    response.delete_cookie(
+        key="session_id",
+        path="/",
+        secure=True,
+        samesite="none"
     )
     return {"message": "Đã đăng xuất"}
 
