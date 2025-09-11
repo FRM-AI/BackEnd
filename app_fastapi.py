@@ -465,7 +465,7 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:3000",  # Next.js development
         "http://localhost:3001",  # Alternative Next.js port
-        "https://*.vercel.app",   # Vercel deployments
+        "https://frm-ai-fe-0c4c7014ba75.herokuapp.com",   # Vercel deployments
         "https://frm-ai-be-ae82305655d8.herokuapp.com", # Production domain (replace with actual domain)
         # Add more domains as needed
     ],
@@ -2024,6 +2024,7 @@ if __name__ == '__main__':
         access_log=True,
         log_level="info"
     )
+
 
 
 
