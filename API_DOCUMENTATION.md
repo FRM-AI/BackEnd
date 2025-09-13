@@ -56,7 +56,12 @@ POST /api/auth/register
 }
 ```
 
-**Note:** Session cookie được set tự động trong response headers.
+**Response Headers:**
+```
+Set-Cookie: session_id=<session_value>; HttpOnly; Max-Age=86400; SameSite=lax; Path=/
+```
+
+**Note:** Session cookie được set tự động trong response headers. `session_id` không xuất hiện trong response body vì lý do bảo mật.
 ```
 
 #### 2. Đăng nhập
@@ -85,7 +90,12 @@ POST /api/auth/login
 }
 ```
 
-**Note:** Session cookie được set tự động trong response headers.
+**Response Headers:**
+```
+Set-Cookie: session_id=<session_value>; HttpOnly; Max-Age=86400; SameSite=lax; Path=/
+```
+
+**Note:** Session cookie được set tự động trong response headers. `session_id` không xuất hiện trong response body vì lý do bảo mật.
 ```
 
 #### 3. Đăng xuất
@@ -102,7 +112,12 @@ POST /api/auth/logout
 }
 ```
 
-**Note:** Session cookie được xóa tự động.
+**Response Headers:**
+```
+Set-Cookie: session_id=; HttpOnly; Max-Age=0; Path=/
+```
+
+**Note:** Session cookie được xóa tự động trong response headers.
 ```
 
 #### 4. Lấy thông tin user hiện tại
@@ -508,20 +523,39 @@ POST /api/news
 **Response:**
 ```json
 {
-  "success": true,
-  "articles": [
+  "status": "success",
+  "data": [
     {
       "title": "VCB công bố kết quả kinh doanh Q4",
       "snippet": "Vietcombank báo lãi 15,000 tỷ đồng...",
-      "url": "https://example.com/news",
       "source": "Google News",
-      "published_date": "2024-01-01",
+      "link": "https://example.com/news",
+      "date": "2024-01-01",
       "sentiment": "positive",
       "relevance_score": 15
     }
   ],
-  "total_articles": 25,
-  "symbol": "VCB"
+  "symbol": "VCB",
+  "metadata": {
+    "symbol_type": "vietnamese",
+    "search_parameters": {
+      "symbol": "VCB",
+      "pages": 2,
+      "look_back_days": 30,
+      "news_sources": ["google"],
+      "max_results": 50
+    },
+    "statistics": {
+      "total_articles": 25,
+      "sources_used": ["google"],
+      "date_range": {
+        "from": "2024-01-01",
+        "to": "2024-01-31"
+      },
+      "processing_time": 1.25
+    }
+  },
+  "authenticated": true
 }
 ```
 
@@ -606,15 +640,19 @@ POST /api/insights
 ```json
 {
   "success": true,
-  "insights": {
-    "technical_analysis": "Cổ phiếu VCB đang trong xu hướng tăng...",
-    "fundamental_analysis": "Công ty có tăng trưởng ổn định...",
-    "news_sentiment": "Tin tức gần đây tích cực...",
-    "recommendation": "MUA",
-    "confidence_score": 0.85,
-    "risk_level": "THẤP"
-  },
-  "generated_at": "2024-01-01T00:00:00Z"
+  "ticker": "VCB",
+  "technical_analysis": "Cổ phiếu VCB đang trong xu hướng tăng...",
+  "news_analysis": "Tin tức gần đây tích cực...",
+  "combined_analysis": "Kết hợp phân tích kỹ thuật và tin tức...",
+  "metadata": {
+    "generated_at": "2024-01-01T00:00:00Z",
+    "date_range": {
+      "start": "2024-01-01",
+      "end": "2024-12-31"
+    },
+    "look_back_days": 30,
+    "authenticated": true
+  }
 }
 ```
 
@@ -688,7 +726,16 @@ POST /api/chat/conversations/{conversation_id}/messages
 ws://localhost:8000/ws/chat?session_id=<session_id>&user_id=<user_id>
 ```
 
-**Authentication:** Session ID from cookie hoặc query parameter
+**Authentication:** Session ID from cookie và user_id as query parameters
+
+**Query Parameters:**
+- `session_id` (string, required): Session ID để xác thực
+- `user_id` (string, required): User ID của người dùng kết nối
+
+**Events:** 
+- `message`: Gửi tin nhắn
+- `typing`: Chỉ thị đang gõ
+- `ping`: Keep-alive ping
 
 ### Social Media Endpoints
 
@@ -817,7 +864,7 @@ GET /api/service-usage/stats?days=30
 GET /api/admin/dashboard
 ```
 
-**Headers:** `Authorization: Bearer <admin_token>`
+**Headers:** Session cookie (automatic) - User must have admin role
 
 **Response:**
 ```json
@@ -847,14 +894,14 @@ GET /api/admin/dashboard
 GET /api/admin/financial-summary?days=30
 ```
 
-**Headers:** `Authorization: Bearer <admin_token>`
+**Headers:** Session cookie (automatic) - User must have admin role
 
 #### 3. Tạo gói dịch vụ
 ```http
 POST /api/admin/packages
 ```
 
-**Headers:** `Authorization: Bearer <admin_token>`
+**Headers:** Session cookie (automatic) - User must have admin role
 
 **Request Body:**
 ```json
@@ -873,14 +920,14 @@ POST /api/admin/packages
 PUT /api/admin/packages/{package_id}
 ```
 
-**Headers:** `Authorization: Bearer <admin_token>`
+**Headers:** Session cookie (automatic) - User must have admin role
 
 #### 5. Gửi thông báo hàng loạt
 ```http
 POST /api/admin/notifications/broadcast
 ```
 
-**Headers:** `Authorization: Bearer <admin_token>`
+**Headers:** Session cookie (automatic) - User must have admin role
 
 **Request Body:**
 ```json
