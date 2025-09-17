@@ -723,13 +723,11 @@ POST /api/chat/conversations/{conversation_id}/messages
 
 #### 5. WebSocket cho chat realtime
 ```websocket
-ws://localhost:8000/ws/chat?session_id=<session_id>&user_id=<user_id>
+ws://localhost:8000/ws/chat?user_id=yyy
+// session_id tự động đọc từ cookie
 ```
 
-**Authentication:** Session ID from cookie và user_id as query parameters
-
 **Query Parameters:**
-- `session_id` (string, required): Session ID để xác thực
 - `user_id` (string, required): User ID của người dùng kết nối
 
 **Events:** 
