@@ -369,6 +369,28 @@ def enhance_news_with_sentiment(news_list):
     
     return news_list
 
+def parse_cookies_from_websocket(websocket: WebSocket) -> Dict[str, str]:
+    """Parse cookies from WebSocket request headers"""
+    cookies = {}
+    try:
+        headers = websocket.headers
+        cookie_header = headers.get('cookie', '')
+        
+        if cookie_header:
+            # Parse cookie string: "key1=value1; key2=value2"
+            for cookie_part in cookie_header.split(';'):
+                cookie_part = cookie_part.strip()
+                if '=' in cookie_part:
+                    key, value = cookie_part.split('=', 1)
+                    cookies[key.strip()] = value.strip()
+        
+        logger.debug(f"Parsed cookies from WebSocket: {list(cookies.keys())}")
+        return cookies
+        
+    except Exception as e:
+        logger.error(f"Error parsing cookies from WebSocket: {e}")
+        return {}
+
 # FastAPI Application
 app = FastAPI(
     title="FRM-AI Financial Risk Management",
@@ -1150,15 +1172,25 @@ async def delete_user_account(current_user: UserWithWallet = Depends(get_current
 @app.websocket("/ws/chat")
 async def chat_websocket(
     websocket: WebSocket, 
-    session_id: str = Query(...),
     user_id: str = Query(...)
 ):
-    """WebSocket endpoint for real-time chat - Using session-based authentication"""
+    """WebSocket endpoint for real-time chat - Using cookie-based session authentication"""
     try:
+        # Parse cookies from WebSocket headers
+        cookies = parse_cookies_from_websocket(websocket)
+        session_id = cookies.get('session_id')
+        
+        # Verify session exists and is valid
+        if not session_id:
+            logger.warning("No session_id found in WebSocket cookies")
+            await websocket.close(code=1008, reason="Authentication failed - No session")
+            return
+        
         # Verify user authentication using session
         session = await auth_manager.get_session(session_id)
         if not session or session['user_id'] != user_id:
-            await websocket.close(code=1008, reason="Authentication failed")
+            logger.warning(f"Invalid session for user {user_id}")
+            await websocket.close(code=1008, reason="Authentication failed - Invalid session")
             return
         
         # Connect user to chat manager
@@ -1175,13 +1207,15 @@ async def chat_websocket(
         if user_info.data:
             user_name = user_info.data[0].get("full_name") or user_info.data[0].get("email")
         
+        logger.info(f"WebSocket connected for user: {user_name} (ID: {user_id})")
+        
         try:
             while True:
                 # Receive message from client
                 data = await websocket.receive_json()
                 event_type = data.get("type")
                 
-                # Extend session on activity
+                # Extend session on activity (using session_id from cookie)
                 await auth_manager.extend_session(session_id)
                 
                 if event_type == "message":
