@@ -139,7 +139,7 @@ class ConnectionManager:
 class ChatManager:
     def __init__(self):
         # Use service key for chat operations to bypass RLS restrictions
-        self.supabase = get_supabase_client(use_service_key=False)
+        self.supabase = get_supabase_client(use_service_key=True)
         self.connection_manager = ConnectionManager()
     
     async def create_conversation(self, created_by: str, participant_ids: List[str], 
@@ -361,3 +361,4 @@ class ChatManager:
 
 # Global chat manager instance
 chat_manager = ChatManager()
+
