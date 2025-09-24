@@ -138,12 +138,14 @@ class StockDataRequest(BaseModel):
 
 class TechnicalSignalsRequest(BaseModel):
     symbol: str = Field(default="VCB", description="Mã cổ phiếu")
+    asset_type: str = Field(default="stock", description="Loại tài sản: stock, crypto")
 
 class FundamentalScoreRequest(BaseModel):
     tickers: List[str] = Field(default=["VCB.VN", "BID.VN", "CTG.VN"], description="Danh sách mã cổ phiếu")
 
 class NewsRequest(BaseModel):
     symbol: str = Field(default="VCB", description="Mã cổ phiếu")
+    asset_type: str = Field(default="stock", description="Loại tài sản: stock, crypto")
     pages: int = Field(default=2, ge=1, le=10, description="Số trang tin tức")
     look_back_days: int = Field(default=30, ge=1, le=365, description="Số ngày quay lại")
     news_sources: List[str] = Field(default=["google"], description="Nguồn tin tức")
@@ -156,18 +158,21 @@ class AlertRequest(BaseModel):
 
 class PortfolioOptimizationRequest(BaseModel):
     symbols: List[str] = Field(default=["VCB", "BID", "CTG", "MBB", "TCB"], description="Danh sách mã cổ phiếu")
+    asset_type: str = Field(default="stock", description="Loại tài sản: stock, crypto")
     start_date: str = Field(default=None, description="Ngày bắt đầu (YYYY-MM-DD)")
     end_date: str = Field(default=None, description="Ngày kết thúc (YYYY-MM-DD)")
     investment_amount: float = Field(default=1000000000, ge=1000000, description="Số tiền đầu tư (VND)")
 
 class ManualPortfolioRequest(BaseModel):
     manual_weights: Dict[str, float] = Field(..., description="Tỷ trọng thủ công (%)")
+    asset_type: str = Field(default="stock", description="Loại tài sản: stock, crypto")
     start_date: str = Field(default="2024-01-01", description="Ngày bắt đầu (YYYY-MM-DD)")
     end_date: str = Field(default="2024-12-31", description="Ngày kết thúc (YYYY-MM-DD)")
     investment_amount: float = Field(default=1000000000, ge=1000000, description="Số tiền đầu tư (VND)")
 
 class InsightsRequest(BaseModel):
     ticker: str = Field(default="VCB", description="Mã cổ phiếu")
+    asset_type: str = Field(default="stock", description="Loại tài sản: stock, crypto")
     start_date: str = Field(default=None, description="Ngày bắt đầu (YYYY-MM-DD)")
     end_date: str = Field(default=None, description="Ngày kết thúc (YYYY-MM-DD)")
     look_back_days: int = Field(default=30, ge=1, le=365, description="Số ngày quay lại")
@@ -1550,7 +1555,7 @@ async def get_technical_signals(
     """Phát hiện tín hiệu kỹ thuật"""
     try:
         # Load and analyze data
-        df = load_stock_data_yf(request_data.symbol, "2000-01-01", datetime.now().strftime('%Y-%m-%d'))
+        df = load_stock_data_yf(request_data.symbol, request_data.asset_type, "2000-01-01", datetime.now().strftime('%Y-%m-%d'))
         df = add_technical_indicators_yf(df)
         
         # Detect signals
@@ -1635,7 +1640,7 @@ async def get_news(
         start_time = datetime.now()
         
         # Vietnamese stocks - prioritize Vietnamese sources
-        is_vietnamese_stock = not any(char in symbol for char in ['.', ':']) or symbol.endswith('.VN')
+        # is_vietnamese_stock = not any(char in symbol for char in ['.', ':']) or symbol.endswith('.VN')
         
         # Google News (universal source)
         if 'google' in request_data.news_sources:
@@ -1648,13 +1653,13 @@ async def get_news(
                     raise HTTPException(status_code=500, detail="News analysis module not available")
                 
                 # Create search query based on stock type
-                if is_vietnamese_stock:
+                if request_data.asset_type == 'stock':
                     # Remove .VN suffix for Vietnamese stocks
                     clean_symbol = symbol.replace('.VN', '')
                     search_query = f"tin tức cổ phiếu {clean_symbol} OR công ty {clean_symbol} OR mã {clean_symbol}"
-                else:
-                    search_query = f"{symbol} stock news OR {symbol} company news"
-                
+                elif request_data.asset_type == 'crypto':
+                    search_query = f"Important news for crypto currencies ticket {symbol}"
+
                 google_news = fetch_google_news(
                     search_query,
                     datetime.now().strftime('%Y-%m-%d'),
@@ -1765,7 +1770,7 @@ async def optimize_portfolio_api(
         logger.info(f"Optimizing portfolio for symbols: {request_data.symbols}")
         
         # Optimize portfolio
-        result = optimize_portfolio(request_data.symbols, start_date, end_date, request_data.investment_amount)
+        result = optimize_portfolio(request_data.symbols, request_data.asset_type, start_date, end_date, request_data.investment_amount)
         
         # Add metadata to result
         if result.get('success'):
@@ -1803,6 +1808,7 @@ async def calculate_manual_portfolio_api(
         # Calculate manual portfolio
         result = calculate_manual_portfolio(
             manual_weights, 
+            request_data.asset_type,
             request_data.start_date, 
             request_data.end_date, 
             request_data.investment_amount
@@ -1839,6 +1845,7 @@ async def get_insights_api(
         # Get AI insights
         response_ta, response_news, response_combined = get_insights(
             ticker=request_data.ticker,
+            asset_type=request_data.asset_type,
             start_date=start_date,
             end_date=end_date,
             look_back_days=request_data.look_back_days

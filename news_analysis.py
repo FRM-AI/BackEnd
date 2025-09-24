@@ -221,7 +221,7 @@ system_prompt_news = (
             + """ Make sure to append a Makrdown table at the end of the report to organize key points in the report, organized and easy to read."""
         )
 
-def get_news_for_ticker(ticker: str, look_back_days: int = 7) -> str:
+def get_news_for_ticker(ticker: str, asset_type: str = 'stock', look_back_days: int = 7) -> str:
     """
     Retrieve recent news about a given stock ticker.
     Args:
@@ -231,16 +231,17 @@ def get_news_for_ticker(ticker: str, look_back_days: int = 7) -> str:
     Returns:
         str: Formatted news string or empty string if no news found.
     """
-    news = fetch_google_news(f'Tin tức quan trọng mã chứng khoán {ticker}', datetime.now().strftime('%Y-%m-%d'), look_back_days)
+    if asset_type == 'stock': news = fetch_google_news(f'Tin tức quan trọng mã chứng khoán {ticker}', datetime.now().strftime('%Y-%m-%d'), look_back_days)
+    elif asset_type == 'crypto': news = fetch_google_news(f'Important news for crypto currencies ticket {ticker}', datetime.now().strftime('%Y-%m-%d'), look_back_days)
     return news
 
-def get_insights(ticker: str, start_date: str = (datetime.now() - timedelta(days=365)).strftime('%Y-%m-%d'), end_date: str = datetime.now().strftime('%Y-%m-%d'), look_back_days: int=30):
+def get_insights(ticker: str, asset_type: str = 'stock', start_date: str = (datetime.now() - timedelta(days=365)).strftime('%Y-%m-%d'), end_date: str = datetime.now().strftime('%Y-%m-%d'), look_back_days: int=30):
     ticker = ticker.upper()
-    df = load_stock_data_yf(ticker, start_date, end_date)
+    df = load_stock_data_yf(ticker, asset_type, start_date, end_date)
     df_ta = add_technical_indicators_yf(df)
     signals = detect_signals(df_ta)
 
-    news = get_news_for_ticker(ticker=ticker, look_back_days=look_back_days)
+    news = get_news_for_ticker(ticker=ticker, asset_type=asset_type, look_back_days=look_back_days)
 
     # Create model instance
     model = genai.GenerativeModel('gemini-2.0-flash-exp')

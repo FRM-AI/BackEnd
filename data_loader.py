@@ -26,23 +26,36 @@ def get_company_info_yf(ticker):
         print(f"Error getting company info for {ticker}: {e}")
         return None
 
-def load_stock_data_yf(ticker, start=(datetime.datetime.now() - datetime.timedelta(days=365)).strftime('%Y-%m-%d'), end=datetime.datetime.now().strftime('%Y-%m-%d'), interval='1d'):
+def load_stock_data_yf(ticker, asset_type='stock', start=(datetime.datetime.now() - datetime.timedelta(days=365)).strftime('%Y-%m-%d'), end=datetime.datetime.now().strftime('%Y-%m-%d'), interval='1d'):
     """Tải dữ liệu giá cổ phiếu từ Yahoo Finance"""
-    try:
-        ticker = ticker.upper() + ".VN"
-        df = yf.download(ticker, start=start, end=end, interval=interval)
-        # Fix MultiIndex columns issue
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = [col[0] for col in df.columns.values]
-        df.reset_index(inplace=True)
-        return df
-    except:
-        df = yf.download(ticker, start=start, end=end, interval=interval)
-        # Fix MultiIndex columns issue
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = [col[0] for col in df.columns.values]
-        df.reset_index(inplace=True)
-        return df
+    if asset_type == 'stock':
+        try:
+            ticker = ticker.upper() + ".VN"
+            df = yf.download(ticker, start=start, end=end, interval=interval)
+            # Fix MultiIndex columns issue
+            if isinstance(df.columns, pd.MultiIndex):
+                df.columns = [col[0] for col in df.columns.values]
+            df.reset_index(inplace=True)
+            return df
+        except:
+            df = yf.download(ticker, start=start, end=end, interval=interval)
+            # Fix MultiIndex columns issue
+            if isinstance(df.columns, pd.MultiIndex):
+                df.columns = [col[0] for col in df.columns.values]
+            df.reset_index(inplace=True)
+            return df
+    elif asset_type == 'crypto':
+        try:
+            ticker = ticker.upper() + "-USD"
+            df = yf.download(ticker, start=start, end=end, interval=interval)
+            # Fix MultiIndex columns issue
+            if isinstance(df.columns, pd.MultiIndex):
+                df.columns = [col[0] for col in df.columns.values]
+            df.reset_index(inplace=True)
+            return df * (yf.Ticker("USDVND=X").history(period="1d", interval="1m"))["Close"].iloc[-1]
+        except Exception as e:
+            print(f"Error loading crypto data for {ticker}: {e}")
+            return None
 
 def load_stock_data_vn(symbol, start='2015-01-01', end=datetime.datetime.now().strftime('%Y-%m-%d')):
     """Tải dữ liệu giá cổ phiếu Việt Nam từ VNQuant (HOSE/HNX/UPCOM)"""
@@ -236,8 +249,8 @@ def load_financials_yf(ticker):
 #         return []
 
 if __name__ == "__main__":
-    # print(load_stock_data_yf("MWG.VN"))
-    print(load_stock_data_vn("MWG", "2011-01-01"))
-    # print(load_financials_yf("VCB.VN")[0][f'{datetime.datetime.now().year - 1}-12-31'])
+    print(load_stock_data_yf("MWG"))
+    # print(load_stock_data_vn("MWG", "2011-01-01"))
+    # print(load_financials_yf("VCB")[0][f'{datetime.datetime.now().year - 1}-12-31'])
     # print(crawl_news_cafef("VCB"))
     # print(crawl_news_yahoo("AAPL"))
