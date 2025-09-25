@@ -35,7 +35,7 @@ from pathlib import Path
 
 # Get the directory where this script is located
 CURRENT_DIR = Path(__file__).parent
-TEMPLATES_DIR = CURRENT_DIR / "templates"
+TEMPLATES_DIR = CURRENT_DIR.parent / "templates"  # Go up one level to FRM-AI/templates
 STATIC_DIR = CURRENT_DIR / "static"
 
 # Configure comprehensive logging
@@ -486,14 +486,22 @@ async def performance_monitoring(request: Request, call_next):
     
     return response
 
-# CORS Configuration - Optimized for Next.js Frontend
+# CORS Configuration - Fixed for proper localhost access
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:3000",  # Next.js development
         "http://localhost:3001",  # Alternative Next.js port
+        "http://localhost:8000",  # FastAPI server
+        "http://127.0.0.1:3000",  # Alternative localhost format
+        "http://127.0.0.1:8000",  # Alternative localhost format
+        "http://127.0.0.1:8080",  # Python http.server for templates
+        "http://localhost:8080",  # Python http.server for templates
+        "http://0.0.0.0:8000",   # Explicit 0.0.0.0 binding
+        "file://",               # For local file access
+        "null",                  # For local file access
         "https://frm-ai-fe-0c4c7014ba75.herokuapp.com",   # Vercel deployments
-        "https://frm-ai-be-ae82305655d8.herokuapp.com", # Production domain (replace with actual domain)
+        "https://frm-ai-be-ae82305655d8.herokuapp.com", # Production domain
         # Add more domains as needed
     ],
     allow_credentials=True,
@@ -507,6 +515,8 @@ app.add_middleware(
         "X-Requested-With",
         "Access-Control-Request-Method",
         "Access-Control-Request-Headers",
+        "Cache-Control",
+        "Pragma"
     ],
     expose_headers=[
         "X-Total-Count",
@@ -1707,7 +1717,7 @@ async def get_news(
             'data': aggregated_news,
             'symbol': symbol,
             'metadata': {
-                'symbol_type': 'vietnamese' if is_vietnamese_stock else 'international',
+                'symbol_type': 'vietnamese',
                 'search_parameters': {
                     'symbol': symbol,
                     'pages': request_data.pages,
