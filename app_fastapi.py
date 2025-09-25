@@ -1804,8 +1804,8 @@ async def calculate_manual_portfolio_api(
 ):
     """Tính toán hiệu suất danh mục thủ công"""
     try:
-        # Convert percentage weights to decimals
-        manual_weights = {symbol: weight/100 for symbol, weight in request_data.manual_weights.items()}
+        # Frontend already sends weights as decimals (0.3 for 30%)
+        manual_weights = request_data.manual_weights
         
         # Validate weights sum to 1
         total_weight = sum(manual_weights.values())
