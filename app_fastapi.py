@@ -97,7 +97,7 @@ from wallet_manager import (
 from package_manager import (
     package_manager, Package, UserPackage, PackageCreate, PackageUpdate
 )
-from service_manager import service_manager, track_service
+from service_manager import service_manager, track_service, check_balance_and_track
 from notification_manager import (
     notification_manager, Notification, NotificationCreate, 
     BulkNotificationCreate
@@ -785,6 +785,14 @@ async def get_service_usage_stats(
 ):
     """Lấy thống kê sử dụng dịch vụ"""
     return await service_manager.get_user_usage_stats(current_user.id, days)
+
+@app.get("/api/service-usage/check-balance/{service_type}")
+async def check_service_balance(
+    service_type: str,
+    current_user: UserWithWallet = Depends(get_current_user)
+):
+    """Kiểm tra số dư cho dịch vụ cụ thể (chỉ dành cho dashboard)"""
+    return await service_manager.check_balance_for_service(current_user.id, service_type)
 
 # ================================
 # SOCIAL MEDIA ROUTES
@@ -1525,7 +1533,7 @@ async def mark_messages_as_read(
 # ================================
 
 @app.post("/api/stock_data")
-@track_service("stock_analysis")
+@check_balance_and_track("stock_analysis")
 async def get_stock_data(
     request_data: StockDataRequest,
     current_user: Optional[UserWithWallet] = Depends(get_optional_user),
@@ -1556,7 +1564,7 @@ async def get_stock_data(
         raise HTTPException(status_code=500, detail=f"Lỗi khi tải dữ liệu cổ phiếu: {str(e)}")
 
 @app.post("/api/technical_signals")
-@track_service("technical_analysis")
+@check_balance_and_track("technical_analysis")
 async def get_technical_signals(
     request_data: TechnicalSignalsRequest,
     current_user: Optional[UserWithWallet] = Depends(get_optional_user),
@@ -1588,7 +1596,7 @@ async def get_technical_signals(
         raise HTTPException(status_code=500, detail=f"Lỗi khi phát hiện tín hiệu: {str(e)}")
 
 @app.post("/api/fundamental_score")
-@track_service("fundamental_scoring")
+@check_balance_and_track("fundamental_scoring")
 async def get_fundamental_score(
     request_data: FundamentalScoreRequest,
     current_user: Optional[UserWithWallet] = Depends(get_optional_user),
@@ -1620,7 +1628,7 @@ async def get_fundamental_score(
         raise HTTPException(status_code=500, detail=f"Lỗi khi tính điểm cơ bản: {str(e)}")
 
 @app.post("/api/news")
-@track_service("news_analysis")
+@check_balance_and_track("news_analysis")
 async def get_news(
     request_data: NewsRequest,
     current_user: Optional[UserWithWallet] = Depends(get_optional_user),
@@ -1765,7 +1773,7 @@ async def send_alert_api(
         raise HTTPException(status_code=500, detail=f"Lỗi khi gửi cảnh báo: {str(e)}")
 
 @app.post("/api/optimize_portfolio")
-@track_service("portfolio_optimization")
+@check_balance_and_track("portfolio_optimization")
 async def optimize_portfolio_api(
     request_data: PortfolioOptimizationRequest,
     current_user: Optional[UserWithWallet] = Depends(get_optional_user),
@@ -1796,7 +1804,7 @@ async def optimize_portfolio_api(
         raise HTTPException(status_code=500, detail=f"Lỗi khi tối ưu hóa danh mục: {str(e)}")
 
 @app.post("/api/calculate_manual_portfolio")
-@track_service("portfolio_optimization")
+@check_balance_and_track("portfolio_optimization")
 async def calculate_manual_portfolio_api(
     request_data: ManualPortfolioRequest,
     current_user: Optional[UserWithWallet] = Depends(get_optional_user),
@@ -1840,7 +1848,7 @@ async def calculate_manual_portfolio_api(
         raise HTTPException(status_code=500, detail=f"Lỗi khi tính toán danh mục thủ công: {str(e)}")
 
 @app.post("/api/insights")
-@track_service("ai_insights")
+@check_balance_and_track("ai_insights")
 async def get_insights_api(
     request_data: InsightsRequest,
     current_user: Optional[UserWithWallet] = Depends(get_optional_user),

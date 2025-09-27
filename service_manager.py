@@ -49,25 +49,34 @@ class ServiceManager:
     def __init__(self):
         self.supabase = get_supabase_client(use_service_key=True)
         
-        # Service types and their costs
+        # Service types and their costs (in FRM Coins)
+        # Updated to match frontend service IDs and standardized costs
         self.SERVICE_COSTS = {
-            'stock_analysis': 5,
-            'technical_analysis': 3,
+            'news_analysis': 5,
+            'ai_insights': 10,
+            'technical_analysis': 8,
+            'technical_signals': 6,
             'portfolio_optimization': 10,
-            'news_analysis': 2,
-            'fundamental_scoring': 4,
-            'ai_insights': 8,
-            'alerts': 1
+            'manual_portfolio_calc': 8,
+            'fundamental_score': 12,
+            'stock_data': 3,
+            'send_alert': 2,
+            'stock_analysis': 5,  # Legacy support
+            'fundamental_scoring': 12  # Legacy support
         }
         
         self.SERVICE_DESCRIPTIONS = {
-            'stock_analysis': 'Phân tích cổ phiếu',
-            'technical_analysis': 'Phân tích kỹ thuật',
-            'portfolio_optimization': 'Tối ưu hóa danh mục',
             'news_analysis': 'Phân tích tin tức',
-            'fundamental_scoring': 'Chấm điểm cơ bản',
-            'ai_insights': 'Phân tích AI',
-            'alerts': 'Cảnh báo'
+            'ai_insights': 'AI Insights',
+            'technical_analysis': 'Phân tích kỹ thuật',
+            'technical_signals': 'Tín hiệu kỹ thuật',
+            'portfolio_optimization': 'Tối ưu hóa danh mục',
+            'manual_portfolio_calc': 'Tính toán danh mục thủ công',
+            'fundamental_score': 'Điểm số cơ bản',
+            'stock_data': 'Dữ liệu cổ phiếu',
+            'send_alert': 'Gửi cảnh báo',
+            'stock_analysis': 'Phân tích cổ phiếu',  # Legacy support
+            'fundamental_scoring': 'Chấm điểm cơ bản'  # Legacy support
         }
     
     async def get_service_cost(self, service_type: str) -> int:
@@ -88,6 +97,41 @@ class ServiceManager:
         except Exception as e:
             logger.warning(f"Error getting service cost for {service_type}: {e}")
             return self.SERVICE_COSTS.get(service_type, 0)
+    
+    async def check_balance_for_service(self, user_id: str, service_type: str) -> Dict[str, Any]:
+        """Check if user has sufficient balance for service"""
+        try:
+            cost = await self.get_service_cost(service_type)
+            
+            if cost <= 0:
+                return {
+                    "sufficient": True,
+                    "cost": 0,
+                    "balance": 0,
+                    "shortage": 0
+                }
+            
+            if wallet_manager is None:
+                raise HTTPException(status_code=500, detail="Wallet service không khả dụng")
+            
+            # Get wallet info
+            wallet = await wallet_manager.ensure_wallet_exists(user_id)
+            
+            sufficient = wallet.balance >= cost
+            shortage = max(0, cost - wallet.balance)
+            
+            return {
+                "sufficient": sufficient,
+                "cost": cost,
+                "balance": wallet.balance,
+                "shortage": shortage
+            }
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Check balance error: {e}")
+            raise HTTPException(status_code=500, detail="Lỗi khi kiểm tra số dư")
     
     async def check_usage_limit(self, user_id: str, service_type: str) -> bool:
         """Check if user has exceeded daily usage limit"""
@@ -123,7 +167,7 @@ class ServiceManager:
                                 response_data: Optional[Dict] = None,
                                 execution_time_ms: Optional[int] = None,
                                 request: Optional[Request] = None) -> ServiceUsage:
-        """Track service usage and deduct coins"""
+        """Track service usage and deduct coins (balance already checked by decorator)"""
         try:
             # Check if service type is valid
             if service_type not in self.SERVICE_COSTS:
@@ -137,29 +181,21 @@ class ServiceManager:
             cost = await self.get_service_cost(service_type)
             actual_cost_deducted = 0
             
-            # Check and deduct coins if needed
+            # Deduct coins if needed (balance already verified by decorator)
             if cost > 0 and wallet_manager is not None:
                 try:
-                    # Ensure wallet exists
-                    wallet = await wallet_manager.ensure_wallet_exists(user_id)
+                    # Deduct coins - balance already checked in decorator
+                    await wallet_manager.spend_coins(
+                        user_id, cost, 'spend_service',
+                        f"Sử dụng dịch vụ {self.SERVICE_DESCRIPTIONS.get(service_type, service_type)}",
+                        'service', service_type
+                    )
+                    actual_cost_deducted = cost
                     
-                    # If user has enough balance, deduct coins
-                    if wallet.balance >= cost:
-                        # Deduct coins
-                        await wallet_manager.spend_coins(
-                            user_id, cost, 'spend_service',
-                            f"Sử dụng dịch vụ {self.SERVICE_DESCRIPTIONS.get(service_type, service_type)}",
-                            'service', service_type
-                        )
-                        actual_cost_deducted = cost
-                    else:
-                        # Not enough balance - service still works but no coins deducted
-                        logger.warning(f"User {user_id} doesn't have enough coins for {service_type} (needs {cost}, has {wallet.balance})")
-                        actual_cost_deducted = 0
                 except Exception as wallet_error:
-                    logger.error(f"Wallet operation failed for user {user_id}: {wallet_error}")
-                    # Continue without deducting coins
-                    actual_cost_deducted = 0
+                    logger.error(f"Wallet coin deduction failed for user {user_id}: {wallet_error}")
+                    # Don't raise error here since service was already executed successfully
+                    # Just log the error and continue with tracking
             
             # Get IP address
             ip_address = None
@@ -439,6 +475,103 @@ def track_service(service_type: str):
                             execution_time_ms=execution_time_ms,
                             request=request
                         )
+                    except:
+                        pass  # Don't fail if tracking fails
+                
+                raise e
+        
+        return wrapper
+    return decorator
+
+# New decorator that checks balance BEFORE executing function
+def check_balance_and_track(service_type: str):
+    """Decorator to check balance before execution and track usage - FastAPI compatible"""
+    def decorator(func):
+        @functools.wraps(func)
+        async def wrapper(*args, **kwargs):
+            start_time = time.time()
+            
+            # Try to get user_id and request from arguments
+            current_user = kwargs.get('current_user')
+            user_id = None
+            
+            if current_user is not None and hasattr(current_user, 'id'):
+                user_id = current_user.id
+            elif isinstance(current_user, str):
+                user_id = current_user
+            
+            request = kwargs.get('request')
+            
+            # Serialize request data safely
+            safe_request_data = serialize_request_data(kwargs)
+            
+            # CHECK BALANCE BEFORE EXECUTION
+            if user_id and isinstance(user_id, str):
+                try:
+                    # Get service cost
+                    cost = await service_manager.get_service_cost(service_type)
+                    
+                    if cost > 0 and wallet_manager is not None:
+                        # Ensure wallet exists
+                        wallet = await wallet_manager.ensure_wallet_exists(user_id)
+                        
+                        # Check if user has enough balance - FAIL if not enough
+                        if wallet.balance < cost:
+                            raise HTTPException(
+                                status_code=402, 
+                                detail={
+                                    "error": "insufficient_balance",
+                                    "message": f"Không đủ số dư để sử dụng dịch vụ này. Cần {cost} FRM Coin, hiện có {wallet.balance} FRM Coin.",
+                                    "required": cost,
+                                    "current": wallet.balance,
+                                    "shortage": cost - wallet.balance
+                                }
+                            )
+                except HTTPException:
+                    # Re-raise balance check errors immediately
+                    raise
+                except Exception as wallet_error:
+                    logger.error(f"Balance check failed for user {user_id}: {wallet_error}")
+                    raise HTTPException(status_code=500, detail="Lỗi hệ thống khi kiểm tra số dư")
+            
+            try:
+                # Execute the function ONLY after balance check passes
+                result = await func(*args, **kwargs)
+                
+                # Calculate execution time
+                execution_time_ms = int((time.time() - start_time) * 1000)
+                
+                # Track usage and deduct coins if user_id is available
+                if user_id and isinstance(user_id, str):
+                    await service_manager.track_service_usage(
+                        user_id=user_id,
+                        service_type=service_type,
+                        request_data=safe_request_data,
+                        response_data={"success": True},
+                        execution_time_ms=execution_time_ms,
+                        request=request
+                    )
+                
+                return result
+                
+            except Exception as e:
+                # Track failed usage (but don't deduct coins for failed execution)
+                execution_time_ms = int((time.time() - start_time) * 1000)
+                
+                if user_id and isinstance(user_id, str):
+                    try:
+                        # Create a tracking entry but without coin deduction for failed execution
+                        usage_data = {
+                            "user_id": user_id,
+                            "service_type": service_type,
+                            "coins_spent": 0,  # No coins deducted for failed execution
+                            "request_data": safe_request_data,
+                            "response_data": {"success": False, "error": str(e)},
+                            "execution_time_ms": execution_time_ms,
+                            "ip_address": request.client.host if request and hasattr(request, 'client') else None
+                        }
+                        
+                        service_manager.supabase.table('service_usage').insert(usage_data).execute()
                     except:
                         pass  # Don't fail if tracking fails
                 
