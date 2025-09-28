@@ -9,7 +9,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, Field, EmailStr
 from typing import List, Dict, Optional, Any
@@ -115,7 +115,7 @@ from technical_analysis import detect_signals
 from fundamental_scoring_vn import score_stock, rank_stocks
 from portfolio_optimization import optimize_portfolio, calculate_manual_portfolio
 from alert import send_alert
-from news_analysis import get_insights
+from news_analysis import get_insights, get_insights_streaming
 # from stock_analysis import analyze_stock
 
 # Additional Pydantic Models for new features
@@ -1854,7 +1854,7 @@ async def get_insights_api(
     current_user: Optional[UserWithWallet] = Depends(get_optional_user),
     request: Request = None
 ):
-    """Lấy phân tích AI từ dữ liệu kỹ thuật và tin tức"""
+    """Lấy phân tích AI từ dữ liệu kỹ thuật và tin tức (Legacy - non-streaming)"""
     try:
         # Set default dates if not provided
         start_date = request_data.start_date or (datetime.now() - timedelta(days=365)).strftime('%Y-%m-%d')
@@ -1889,6 +1889,61 @@ async def get_insights_api(
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Lỗi khi tạo phân tích AI: {str(e)}")
+
+@app.post("/api/insights/stream")
+@check_balance_and_track("ai_insights")
+async def get_insights_stream_api(
+    request_data: InsightsRequest,
+    current_user: Optional[UserWithWallet] = Depends(get_optional_user),
+    request: Request = None
+):
+    """Lấy phân tích AI với streaming response (Server-Sent Events)"""
+    
+    # Set default dates if not provided
+    start_date = request_data.start_date or (datetime.now() - timedelta(days=365)).strftime('%Y-%m-%d')
+    end_date = request_data.end_date or datetime.now().strftime('%Y-%m-%d')
+    
+    async def generate_insights():
+        try:
+            # Initialize metadata at the start
+            import json
+            metadata = {
+                'ticker': request_data.ticker,
+                'generated_at': datetime.now().isoformat(),
+                'date_range': {'start': start_date, 'end': end_date},
+                'look_back_days': request_data.look_back_days,
+                'authenticated': current_user is not None
+            }
+            
+            # Send metadata first
+            yield f"data: {json.dumps({'type': 'metadata', 'data': metadata})}\n\n"
+            
+            # Generate streaming insights
+            for chunk in get_insights_streaming(
+                ticker=request_data.ticker,
+                asset_type=request_data.asset_type,
+                start_date=start_date,
+                end_date=end_date,
+                look_back_days=request_data.look_back_days
+            ):
+                yield chunk
+                # Add small delay to make streaming more visible
+                import asyncio
+                await asyncio.sleep(0.01)
+                
+        except Exception as e:
+            yield f"data: {json.dumps({'type': 'error', 'message': f'Lỗi hệ thống: {str(e)}'})}\n\n"
+    
+    return StreamingResponse(
+        generate_insights(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Headers": "*",
+        }
+    )
 
 # @app.post("/api/stock_analysis")
 # @track_service("stock_analysis")

@@ -266,5 +266,96 @@ def get_insights(ticker: str, asset_type: str = 'stock', start_date: str = (date
 
     return response_ta, response_news, response
 
+def get_insights_streaming(ticker: str, asset_type: str = 'stock', start_date: str = (datetime.now() - timedelta(days=365)).strftime('%Y-%m-%d'), end_date: str = datetime.now().strftime('%Y-%m-%d'), look_back_days: int=30):
+    """
+    Streaming version of get_insights that yields chunks in real-time.
+    Returns a generator that yields Server-Sent Events formatted data.
+    """
+    import json
+    
+    ticker = ticker.upper()
+    
+    try:
+        # Yield initial status
+        yield f"data: {json.dumps({'type': 'status', 'message': 'Đang tải dữ liệu chứng khoán...', 'progress': 10})}\n\n"
+        
+        df = load_stock_data_yf(ticker, asset_type, start_date, end_date)
+        df_ta = add_technical_indicators_yf(df)
+        signals = detect_signals(df_ta)
+        
+        yield f"data: {json.dumps({'type': 'status', 'message': 'Đang tải tin tức...', 'progress': 20})}\n\n"
+        
+        news = get_news_for_ticker(ticker=ticker, asset_type=asset_type, look_back_days=look_back_days)
+        
+        # Create model instance
+        model = genai.GenerativeModel('gemini-2.0-flash-exp')
+        
+        # Phase 1: Technical Analysis
+        yield f"data: {json.dumps({'type': 'status', 'message': 'Đang phân tích kỹ thuật...', 'progress': 30})}\n\n"
+        yield f"data: {json.dumps({'type': 'section_start', 'section': 'technical_analysis', 'title': 'Phân Tích Kỹ Thuật'})}\n\n"
+        
+        try:
+            response_ta = model.generate_content([
+                f"System: {system_prompt_ta}\n\nJust generate the REQUIRED content, DO NOT generate anything else. Only give the professional insights and analysis. DO NOT generate answer unnecessarily else. In Vietnamese.\n\n",
+                f"You are a professional trader, analyst, businessman. Analyze professionally DO NOT explain or answer unnecessarily. Generate easy to read, professional insights, analysis, FOCUS DEEPLY on the GIVEN signals to help traders decide action with stock ticker {ticker}. Given: '{signals}'"
+            ], stream=True)
+            
+            technical_content = ""
+            for chunk in response_ta:
+                if hasattr(chunk, 'text') and chunk.text:
+                    technical_content += chunk.text
+                    yield f"data: {json.dumps({'type': 'content', 'section': 'technical_analysis', 'text': chunk.text})}\n\n"
+        except Exception as e:
+            technical_content = f"Lỗi trong phân tích kỹ thuật: {str(e)}"
+            yield f"data: {json.dumps({'type': 'error', 'section': 'technical_analysis', 'message': technical_content})}\n\n"
+        
+        yield f"data: {json.dumps({'type': 'section_end', 'section': 'technical_analysis'})}\n\n"
+        
+        # Phase 2: News Analysis
+        yield f"data: {json.dumps({'type': 'status', 'message': 'Đang phân tích tin tức...', 'progress': 60})}\n\n"
+        yield f"data: {json.dumps({'type': 'section_start', 'section': 'news_analysis', 'title': 'Phân Tích Tin Tức'})}\n\n"
+        
+        try:
+            response_news = model.generate_content([
+                f"System: {system_prompt_news}\n\nJust generate the REQUIRED content, DO NOT generate anything else. In Vietnamese.\n\n",
+                f"You are a professional trader, analyst, businessman. Generate easy to read, professional insights and analysis to help traders decide action with stock ticker {ticker}. Given: '{news}'"
+            ], stream=True)
+            
+            news_content = ""
+            for chunk in response_news:
+                if hasattr(chunk, 'text') and chunk.text:
+                    news_content += chunk.text
+                    yield f"data: {json.dumps({'type': 'content', 'section': 'news_analysis', 'text': chunk.text})}\n\n"
+        except Exception as e:
+            news_content = f"Lỗi trong phân tích tin tức: {str(e)}"
+            yield f"data: {json.dumps({'type': 'error', 'section': 'news_analysis', 'message': news_content})}\n\n"
+            
+        yield f"data: {json.dumps({'type': 'section_end', 'section': 'news_analysis'})}\n\n"
+        
+        # Phase 3: Combined Analysis
+        yield f"data: {json.dumps({'type': 'status', 'message': 'Đang tạo phân tích tổng hợp...', 'progress': 80})}\n\n"
+        yield f"data: {json.dumps({'type': 'section_start', 'section': 'combined_analysis', 'title': 'Phân Tích Tổng Hợp & Khuyến Nghị'})}\n\n"
+        
+        try:
+            response_combined = model.generate_content([
+                f"System: {system_prompt_news}\n\nJust generate the REQUIRED content, DO NOT generate anything else. Kết luận 1 trong những lựa chọn: MUA hoặc BÁN hoặc GIỮ. Có dẫn chứng chính xác. In Vietnamese.\n\n",
+                f"You are a professional trader, analyst, businessman. Generate easy to read, professional insights, analysis WITH CONCISE REFERENCES to help traders decide action with stock ticker {ticker}. Given: '{news_content}' and '{technical_content}'"
+            ], stream=True)
+            
+            for chunk in response_combined:
+                if hasattr(chunk, 'text') and chunk.text:
+                    yield f"data: {json.dumps({'type': 'content', 'section': 'combined_analysis', 'text': chunk.text})}\n\n"
+        except Exception as e:
+            combined_content = f"Lỗi trong phân tích tổng hợp: {str(e)}"
+            yield f"data: {json.dumps({'type': 'error', 'section': 'combined_analysis', 'message': combined_content})}\n\n"
+            
+        yield f"data: {json.dumps({'type': 'section_end', 'section': 'combined_analysis'})}\n\n"
+        
+        # Completion
+        yield f"data: {json.dumps({'type': 'complete', 'message': 'Phân tích hoàn tất!', 'progress': 100})}\n\n"
+        
+    except Exception as e:
+        yield f"data: {json.dumps({'type': 'error', 'message': f'Lỗi hệ thống: {str(e)}'})}\n\n"
+
 if __name__ == "__main__":
     print(fetch_google_news("Tin tuc chung khoan TCB", '2025-07-10', 30))
