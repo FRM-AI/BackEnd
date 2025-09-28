@@ -9,7 +9,7 @@ import time
 def test_streaming_insights():
     """Test the streaming insights endpoint"""
     
-    url = "http://localhost:8000/api/insights/stream"
+    url = "https://frm-ai-be-ae82305655d8.herokuapp.com/api/insights/stream"
     
     payload = {
         "ticker": "VCB",
