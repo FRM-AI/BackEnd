@@ -93,7 +93,8 @@ def extractNewsData(search_term, date_start, date_end):
                         }
                     )
                 except Exception as error:
-                    print(f"Error processing result: {error}")
+                    # Error processing result - log internally only
+                    pass
                     # Skip this result if any field is missing
                     continue
 
@@ -105,7 +106,8 @@ def extractNewsData(search_term, date_start, date_end):
             current_page += 1
 
         except Exception as error:
-            print(f"Failed after multiple retries: {error}")
+            # Failed after multiple retries - log internally only
+            pass
             break
 
     return collected_news

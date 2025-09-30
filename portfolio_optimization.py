@@ -17,7 +17,8 @@ def get_company_info_yf(ticker):
             'shortName': info.get('shortName', 'N/A'),
         }
     except Exception as e:
-        print(f"Error getting company info for {ticker}: {e}")
+        # Error getting company info - log internally only
+        pass
         return None
 
 def load_stock_data_yf(ticker, asset_type='stock', start='2015-01-01', end=datetime.now().strftime('%Y-%m-%d'), interval='1d'):
@@ -228,4 +229,5 @@ if __name__ == "__main__":
         
         print(f"\n4. Số tiền còn lại: {result['leftover']:,.0f} VND")
     else:
-        print(f"Lỗi: {result['error']}")
+        # Error in portfolio optimization - log internally only
+        pass

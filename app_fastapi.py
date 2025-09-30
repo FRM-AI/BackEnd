@@ -97,7 +97,7 @@ from wallet_manager import (
 from package_manager import (
     package_manager, Package, UserPackage, PackageCreate, PackageUpdate
 )
-from service_manager import service_manager, track_service, check_balance_and_track
+from service_manager import service_manager, track_service, check_balance_and_track, check_balance_and_track_streaming
 from notification_manager import (
     notification_manager, Notification, NotificationCreate, 
     BulkNotificationCreate
@@ -1331,7 +1331,7 @@ async def create_conversation(
         }
         
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error creating conversation: {str(e)}")
+        raise HTTPException(status_code=500, detail="Server xử lý lỗi. Vui lòng thử lại.")
 
 @app.get("/api/chat/conversations")
 async def get_user_conversations(
@@ -1348,7 +1348,7 @@ async def get_user_conversations(
         }
         
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error fetching conversations: {str(e)}")
+        raise HTTPException(status_code=500, detail="Server xử lý lỗi. Vui lòng thử lại.")
 
 @app.get("/api/chat/conversations/{conversation_id}/messages")
 async def get_conversation_messages(
@@ -1378,7 +1378,7 @@ async def get_conversation_messages(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error fetching messages: {str(e)}")
+        raise HTTPException(status_code=500, detail="Server xử lý lỗi. Vui lòng thử lại.")
 
 @app.post("/api/chat/conversations/{conversation_id}/messages")
 async def send_message_http(
@@ -1412,7 +1412,7 @@ async def send_message_http(
         }
         
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error sending message: {str(e)}")
+        raise HTTPException(status_code=500, detail="Server xử lý lỗi. Vui lòng thử lại.")
 
 @app.get("/api/chat/conversations/{conversation_id}/participants")
 async def get_conversation_participants(
@@ -1464,7 +1464,7 @@ async def get_conversation_participants(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error fetching participants: {str(e)}")
+        raise HTTPException(status_code=500, detail="Server xử lý lỗi. Vui lòng thử lại.")
 
 @app.post("/api/chat/conversations/{conversation_id}/read")
 async def mark_messages_as_read(
@@ -1526,7 +1526,7 @@ async def mark_messages_as_read(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error marking messages as read: {str(e)}")
+        raise HTTPException(status_code=500, detail="Server xử lý lỗi. Vui lòng thử lại.")
 
 # ================================
 # ENHANCED FINANCIAL ANALYSIS API ROUTES
@@ -1561,7 +1561,7 @@ async def get_stock_data(
             'authenticated': current_user is not None
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Lỗi khi tải dữ liệu cổ phiếu: {str(e)}")
+        raise HTTPException(status_code=500, detail="Server xử lý lỗi. Vui lòng thử lại.")
 
 @app.post("/api/technical_signals")
 @check_balance_and_track("technical_analysis")
@@ -1593,7 +1593,7 @@ async def get_technical_signals(
             'authenticated': current_user is not None
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Lỗi khi phát hiện tín hiệu: {str(e)}")
+        raise HTTPException(status_code=500, detail="Server xử lý lỗi. Vui lòng thử lại.")
 
 @app.post("/api/fundamental_score")
 @check_balance_and_track("fundamental_scoring")
@@ -1625,7 +1625,7 @@ async def get_fundamental_score(
             'authenticated': current_user is not None
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Lỗi khi tính điểm cơ bản: {str(e)}")
+        raise HTTPException(status_code=500, detail="Server xử lý lỗi. Vui lòng thử lại.")
 
 @app.post("/api/news")
 @check_balance_and_track("news_analysis")
@@ -1770,7 +1770,7 @@ async def send_alert_api(
             'authenticated': current_user is not None
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Lỗi khi gửi cảnh báo: {str(e)}")
+        raise HTTPException(status_code=500, detail="Server xử lý lỗi. Vui lòng thử lại.")
 
 @app.post("/api/optimize_portfolio")
 @check_balance_and_track("portfolio_optimization")
@@ -1801,7 +1801,7 @@ async def optimize_portfolio_api(
         
         return result
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Lỗi khi tối ưu hóa danh mục: {str(e)}")
+        raise HTTPException(status_code=500, detail="Server xử lý lỗi. Vui lòng thử lại.")
 
 @app.post("/api/calculate_manual_portfolio")
 @check_balance_and_track("portfolio_optimization")
@@ -1845,7 +1845,7 @@ async def calculate_manual_portfolio_api(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Lỗi khi tính toán danh mục thủ công: {str(e)}")
+        raise HTTPException(status_code=500, detail="Server xử lý lỗi. Vui lòng thử lại.")
 
 @app.post("/api/insights")
 @check_balance_and_track("ai_insights")
@@ -1887,11 +1887,11 @@ async def get_insights_api(
                 'authenticated': current_user is not None
             }
         }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Lỗi khi tạo phân tích AI: {str(e)}")
+    except Exception:
+        raise HTTPException(status_code=500, detail="Server xử lý lỗi. Vui lòng thử lại.")
 
 @app.post("/api/insights/stream")
-@check_balance_and_track("ai_insights")
+@check_balance_and_track_streaming("ai_insights")
 async def get_insights_stream_api(
     request_data: InsightsRequest,
     current_user: Optional[UserWithWallet] = Depends(get_optional_user),
@@ -1931,8 +1931,8 @@ async def get_insights_stream_api(
                 import asyncio
                 await asyncio.sleep(0.01)
                 
-        except Exception as e:
-            yield f"data: {json.dumps({'type': 'error', 'message': f'Lỗi hệ thống: {str(e)}'})}\n\n"
+        except Exception:
+            yield f"data: {{\"type\": \"error\", \"message\": \"Server xử lý lỗi. Vui lòng thử lại.\"}}\n\n"
     
     return StreamingResponse(
         generate_insights(),

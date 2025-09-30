@@ -582,3 +582,112 @@ def check_balance_and_track(service_type: str):
 
 # Global service manager
 service_manager = ServiceManager()
+
+def check_balance_and_track_streaming(service_type: str):
+    """Special decorator for streaming APIs - only deduct coins if streaming completes successfully"""
+    def decorator(func):
+        @functools.wraps(func)
+        async def wrapper(*args, **kwargs):
+            start_time = time.time()
+            
+            # Try to get user_id and request from arguments
+            current_user = kwargs.get('current_user')
+            user_id = None
+            
+            if current_user is not None and hasattr(current_user, 'id'):
+                user_id = current_user.id
+            elif isinstance(current_user, str):
+                user_id = current_user
+            
+            request = kwargs.get('request')
+            
+            # Serialize request data safely
+            safe_request_data = serialize_request_data(kwargs)
+            
+            # CHECK BALANCE BEFORE EXECUTION (same as regular decorator)
+            if user_id and isinstance(user_id, str):
+                try:
+                    # Get service cost
+                    cost = await service_manager.get_service_cost(service_type)
+                    
+                    if cost > 0 and wallet_manager is not None:
+                        # Ensure wallet exists
+                        wallet = await wallet_manager.ensure_wallet_exists(user_id)
+                        
+                        # Check if user has enough balance - FAIL if not enough
+                        if wallet.balance < cost:
+                            raise HTTPException(
+                                status_code=402, 
+                                detail={
+                                    "error": "insufficient_balance",
+                                    "message": f"Không đủ số dư để sử dụng dịch vụ này. Cần {cost} FRM Coin, hiện có {wallet.balance} FRM Coin.",
+                                    "required": cost,
+                                    "current": wallet.balance,
+                                    "shortage": cost - wallet.balance
+                                }
+                            )
+                except HTTPException:
+                    # Re-raise balance check errors immediately
+                    raise
+                except Exception as wallet_error:
+                    logger.error(f"Balance check failed for user {user_id}: {wallet_error}")
+                    raise HTTPException(status_code=500, detail="Lỗi hệ thống khi kiểm tra số dư")
+            
+            # Execute the function (returns StreamingResponse)
+            result = await func(*args, **kwargs)
+            
+            # For streaming, we'll create a wrapper around the generator to track completion
+            if hasattr(result, 'body_iterator'):
+                original_iterator = result.body_iterator
+                streaming_success = False
+                streaming_error = None
+                
+                async def tracking_iterator():
+                    nonlocal streaming_success, streaming_error
+                    try:
+                        async for chunk in original_iterator:
+                            yield chunk
+                        # If we reach here, streaming completed successfully
+                        streaming_success = True
+                    except Exception as e:
+                        streaming_error = e
+                        streaming_success = False
+                        raise
+                    finally:
+                        # Track usage after streaming completes
+                        execution_time_ms = int((time.time() - start_time) * 1000)
+                        
+                        if user_id and isinstance(user_id, str):
+                            try:
+                                if streaming_success:
+                                    # Deduct coins only on successful completion
+                                    await service_manager.track_service_usage(
+                                        user_id=user_id,
+                                        service_type=service_type,
+                                        request_data=safe_request_data,
+                                        response_data={"success": True, "streaming": True},
+                                        execution_time_ms=execution_time_ms,
+                                        request=request
+                                    )
+                                else:
+                                    # Don't deduct coins on failure
+                                    usage_data = {
+                                        "user_id": user_id,
+                                        "service_type": service_type,
+                                        "coins_spent": 0,  # No coins deducted for failed streaming
+                                        "request_data": safe_request_data,
+                                        "response_data": {"success": False, "streaming": True, "error": str(streaming_error) if streaming_error else "Unknown streaming error"},
+                                        "execution_time_ms": execution_time_ms,
+                                        "ip_address": request.client.host if request and hasattr(request, 'client') else None
+                                    }
+                                    service_manager.supabase.table('service_usage').insert(usage_data).execute()
+                            except Exception as tracking_error:
+                                logger.error(f"Failed to track streaming service usage: {tracking_error}")
+                
+                # Replace the iterator in the StreamingResponse
+                result.body_iterator = tracking_iterator()
+            
+            return result
+        
+        return wrapper
+    return decorator

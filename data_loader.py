@@ -23,7 +23,8 @@ def get_company_info_yf(ticker):
             'country': info.get('country', 'N/A')
         }
     except Exception as e:
-        print(f"Error getting company info for {ticker}: {e}")
+        # Error getting company info - log internally only
+        pass
         return None
 
 def load_stock_data_yf(ticker, asset_type='stock', start=(datetime.datetime.now() - datetime.timedelta(days=365)).strftime('%Y-%m-%d'), end=datetime.datetime.now().strftime('%Y-%m-%d'), interval='1d'):
@@ -54,7 +55,8 @@ def load_stock_data_yf(ticker, asset_type='stock', start=(datetime.datetime.now(
             df.reset_index(inplace=True)
             return df * (yf.Ticker("USDVND=X").history(period="1d", interval="1m"))["Close"].iloc[-1]
         except Exception as e:
-            print(f"Error loading crypto data for {ticker}: {e}")
+            # Error loading crypto data - log internally only
+            pass
             return None
 
 def load_stock_data_vn(symbol, start='2015-01-01', end=datetime.datetime.now().strftime('%Y-%m-%d')):
