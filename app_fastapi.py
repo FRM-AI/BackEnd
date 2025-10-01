@@ -557,6 +557,9 @@ chat_manager: Optional[ChatManager] = None
 async def register(user_data: UserRegister, response: Response):
     """Đăng ký tài khoản mới"""
     result = await auth_manager.register_user(user_data)
+
+    # Tạo ví cho user vừa đăng ký
+    await wallet_manager.ensure_wallet_exists(result["user"].id)
     
     # Set session cookie
     response.set_cookie(
