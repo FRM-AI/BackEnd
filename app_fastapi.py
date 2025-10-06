@@ -486,39 +486,23 @@ async def performance_monitoring(request: Request, call_next):
     
     return response
 
-# CORS Configuration - Fixed for proper localhost access
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:3000",  # Next.js development
-        "http://localhost:3001",  # Alternative Next.js port
-        "http://localhost:8000",  # FastAPI server
-        "http://127.0.0.1:3000",  # Alternative localhost format
-        "http://127.0.0.1:8000",  # Alternative localhost format
-        "http://127.0.0.1:8080",  # Python http.server for templates
-        "http://localhost:8080",  # Python http.server for templates
-        "http://0.0.0.0:8000",   # Explicit 0.0.0.0 binding
-        "file://",               # For local file access
-        "null",                  # For local file access
-        "https://frm-ai-fe-0c4c7014ba75.herokuapp.com",   # Vercel deployments
+        "https://frmai.org",
         "https://www.frmai.org",
-        "https://frm-ai-be-ae82305655d8.herokuapp.com", # Production domain
-        # Add more domains as needed
+        "https://api.frmai.org",  # ✅ add backend subdomain itself
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+        "http://0.0.0.0:8000",
+        "file://",
+        "null"
     ],
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
-    allow_headers=[
-        "Authorization", 
-        "Content-Type", 
-        "Accept", 
-        "Origin", 
-        "User-Agent", 
-        "X-Requested-With",
-        "Access-Control-Request-Method",
-        "Access-Control-Request-Headers",
-        "Cache-Control",
-        "Pragma"
-    ],
+    allow_methods=["*"],  # ✅ allow all, Safari sometimes preflights uncommon verbs
+    allow_headers=["*"],  # ✅ let Safari send Authorization + custom headers
     expose_headers=[
         "X-Total-Count",
         "X-Page-Count", 
