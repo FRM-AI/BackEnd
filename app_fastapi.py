@@ -501,6 +501,7 @@ app.add_middleware(
         "file://",               # For local file access
         "null",                  # For local file access
         "https://frm-ai-fe-0c4c7014ba75.herokuapp.com",   # Vercel deployments
+        "https://www.frmai.org",
         "https://frm-ai-be-ae82305655d8.herokuapp.com", # Production domain
         # Add more domains as needed
     ],
@@ -2146,6 +2147,7 @@ if __name__ == '__main__':
         access_log=True,
         log_level="info"
     )
+
 
 
 
