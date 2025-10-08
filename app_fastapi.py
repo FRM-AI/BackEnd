@@ -419,6 +419,32 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 import time
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "https://frmai.org",
+        "https://www.frmai.org",
+        "https://api.frmai.org",  # ✅ add backend subdomain itself
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+        "http://0.0.0.0:8000",
+        "file://",
+        "null"
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],  # ✅ allow all, Safari sometimes preflights uncommon verbs
+    allow_headers=["*"],  # ✅ let Safari send Authorization + custom headers
+    expose_headers=[
+        "X-Total-Count",
+        "X-Page-Count", 
+        "X-Rate-Limit-Limit",
+        "X-Rate-Limit-Remaining",
+        "X-Rate-Limit-Reset"
+    ]
+)
+
 # Add GZip compression
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
@@ -485,32 +511,6 @@ async def performance_monitoring(request: Request, call_next):
         response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     
     return response
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "https://frmai.org",
-        "https://www.frmai.org",
-        "https://api.frmai.org",  # ✅ add backend subdomain itself
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://localhost:8000",
-        "http://127.0.0.1:8000",
-        "http://0.0.0.0:8000",
-        "file://",
-        "null"
-    ],
-    allow_credentials=True,
-    allow_methods=["*"],  # ✅ allow all, Safari sometimes preflights uncommon verbs
-    allow_headers=["*"],  # ✅ let Safari send Authorization + custom headers
-    expose_headers=[
-        "X-Total-Count",
-        "X-Page-Count", 
-        "X-Rate-Limit-Limit",
-        "X-Rate-Limit-Remaining",
-        "X-Rate-Limit-Reset"
-    ]
-)
 
 # Test database connection on startup
 @app.on_event("startup")
