@@ -452,8 +452,7 @@ app.add_middleware(GZipMiddleware, minimum_size=1000)
 app.add_middleware(
     TrustedHostMiddleware,
     allowed_hosts=[
-        "api.frmai.org",
-        "frmai.org",
+        "*.frmai.org",
         "localhost",
         "127.0.0.1",
         "*.vercel.app"
