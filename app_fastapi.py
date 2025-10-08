@@ -450,8 +450,14 @@ app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 # Add trusted host middleware for production security
 app.add_middleware(
-    TrustedHostMiddleware, 
-    allowed_hosts=["localhost", "127.0.0.1", "*.vercel.app", "https://api.frmai.org", "*", ".frmai.org"]
+    TrustedHostMiddleware,
+    allowed_hosts=[
+        "api.frmai.org",
+        "frmai.org",
+        "localhost",
+        "127.0.0.1",
+        "*.vercel.app"
+    ]
 )
 
 # Performance monitoring middleware
