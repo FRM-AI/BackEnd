@@ -53,10 +53,24 @@ def load_stock_data_yf(ticker, asset_type='stock', start=(datetime.datetime.now(
             if isinstance(df.columns, pd.MultiIndex):
                 df.columns = [col[0] for col in df.columns.values]
             df.reset_index(inplace=True)
-            return df * (yf.Ticker("USDVND=X").history(period="1d", interval="1m"))["Close"].iloc[-1]
+            
+            # Get USD/VND exchange rate for conversion
+            try:
+                usd_vnd_rate = yf.Ticker("USDVND=X").history(period="1d", interval="1m")["Close"].iloc[-1]
+                # Only convert price columns to VND, keep Date and Volume unchanged
+                price_columns = ['Open', 'High', 'Low', 'Close', 'Adj Close']
+                for col in price_columns:
+                    if col in df.columns:
+                        df[col] = df[col] * usd_vnd_rate
+            except Exception as rate_error:
+                # If can't get exchange rate, just return USD values
+                print(f"Warning: Could not get USD/VND rate, returning USD values: {rate_error}")
+                pass
+            
+            return df
         except Exception as e:
             # Error loading crypto data - log internally only
-            pass
+            print(f"Error loading crypto data for {ticker}: {e}")
             return None
 
 def load_stock_data_vn(symbol, start='2015-01-01', end=datetime.datetime.now().strftime('%Y-%m-%d')):

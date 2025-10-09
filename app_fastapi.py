@@ -133,6 +133,7 @@ class DashboardStats(BaseModel):
 # Enhanced Pydantic Models for existing functionality
 class StockDataRequest(BaseModel):
     symbol: str = Field(default="VCB", description="Mã cổ phiếu")
+    asset_type: str = Field(default="stock", description="Loại tài sản: stock, crypto")
     start_date: str = Field(default="2024-01-01", description="Ngày bắt đầu (YYYY-MM-DD)")
     end_date: str = Field(default="2024-12-31", description="Ngày kết thúc (YYYY-MM-DD)")
 
@@ -310,10 +311,14 @@ def parse_google_news_format(google_news_text, source):
                 articles.append({
                     'title': title,
                     'snippet': snippet,
+                    'content': snippet,  # Add content field for consistency
                     'source': news_source,
                     'link': news_link,
+                    'url': news_link,  # Add url field for frontend compatibility
                     'date': news_date,
-                    'relevance_score': calculate_relevance_score(title, '')
+                    'published_at': news_date,  # Add published_at for consistency
+                    'relevance_score': calculate_relevance_score(title, ''),
+                    'id': f"news-{len(articles)}"  # Add unique ID
                 })
         except Exception as e:
             logger.error(f"Error parsing news section: {e}")
@@ -1532,29 +1537,134 @@ async def get_stock_data(
     current_user: Optional[UserWithWallet] = Depends(get_optional_user),
     request: Request = None
 ):
-    """Lấy dữ liệu giá cổ phiếu và chỉ báo kỹ thuật"""
-    # logger.info(f"Stock data request: symbol={request_data.symbol}, start_date={request_data.start_date}, end_date={request_data.end_date}")
+    """Lấy dữ liệu giá cổ phiếu và chỉ báo kỹ thuật cho biểu đồ chuyên nghiệp"""
     try:
-        # Load Vietnam stock data
-        df = load_stock_data_vn(request_data.symbol, "2011-01-01", datetime.now().strftime('%Y-%m-%d'))
-        df = add_technical_indicators_vnquant(df)
+        # Load data based on asset type
+        df = load_stock_data_yf(
+            request_data.symbol, 
+            request_data.asset_type, 
+            "2000-01-01", 
+            datetime.now().strftime('%Y-%m-%d')
+        )
+        
+        if df is None or df.empty:
+            raise HTTPException(
+                status_code=404, 
+                detail=f"Không tìm thấy dữ liệu cho mã {request_data.symbol}. " +
+                       "Hệ thống chỉ hỗ trợ cổ phiếu Việt Nam (VD: VCB, FPT, VIC) và crypto (VD: BTC, ETH, BNB)."
+            )
 
-        # Clean the dataframe for JSON serialization
-        data_records = clean_dataframe_for_json(df)
+        # Ensure required columns exist and rename for chart compatibility
+        required_columns = ['Date', 'Open', 'High', 'Low', 'Close', 'Volume']
+        
+        # Check if all required columns exist
+        missing_columns = [col for col in required_columns if col not in df.columns]
+        if missing_columns:
+            raise HTTPException(
+                status_code=500, 
+                detail=f"Dữ liệu thiếu các cột: {missing_columns}"
+            )
+
+        # Format data for lightweight-charts
+        chart_data = []
+        for _, row in df.iterrows():
+            # Convert timestamp to Unix timestamp (seconds)
+            if pd.isna(row['Date']):
+                continue
+                
+            timestamp = int(pd.Timestamp(row['Date']).timestamp())
+            
+            # Ensure all price values are valid numbers
+            try:
+                open_price = float(row['Open']) if not pd.isna(row['Open']) else 0
+                high_price = float(row['High']) if not pd.isna(row['High']) else 0
+                low_price = float(row['Low']) if not pd.isna(row['Low']) else 0
+                close_price = float(row['Close']) if not pd.isna(row['Close']) else 0
+                volume = int(row['Volume']) if not pd.isna(row['Volume']) else 0
+                
+                # Skip invalid data points
+                if all(price > 0 for price in [open_price, high_price, low_price, close_price]):
+                    chart_data.append({
+                        'time': timestamp,
+                        'open': round(open_price, 2),
+                        'high': round(high_price, 2),
+                        'low': round(low_price, 2),
+                        'close': round(close_price, 2),
+                        'volume': volume
+                    })
+            except (ValueError, TypeError):
+                continue
+
+        # Sort by timestamp
+        chart_data.sort(key=lambda x: x['time'])
+        
+        # Get latest price info for summary
+        latest_data = chart_data[-1] if chart_data else None
+        price_change = 0
+        price_change_percent = 0
+        
+        if len(chart_data) >= 2:
+            current_price = latest_data['close']
+            previous_price = chart_data[-2]['close']
+            price_change = current_price - previous_price
+            price_change_percent = (price_change / previous_price) * 100 if previous_price != 0 else 0
+
+        # Determine market info based on asset type
+        market_info = {
+            'stock': {
+                'name': 'Thị trường chứng khoán Việt Nam',
+                'note': 'Hỗ trợ tất cả mã cổ phiếu niêm yết tại HOSE, HNX, UPCOM',
+                'currency': 'VND',
+                'timezone': 'Asia/Ho_Chi_Minh'
+            },
+            'crypto': {
+                'name': 'Thị trường tiền điện tử',
+                'note': 'Hỗ trợ tất cả mã crypto phổ biến (BTC, ETH, BNB, ADA, SOL...)',
+                'currency': 'VND (quy đổi từ USD)',
+                'timezone': 'UTC'
+            }
+        }.get(request_data.asset_type, {
+            'name': 'Thị trường tài chính',
+            'note': 'Hỗ trợ cổ phiếu Việt Nam và crypto quốc tế',
+            'currency': 'VND',
+            'timezone': 'Asia/Ho_Chi_Minh'
+        })
         
         return {
             'success': True,
-            'data': data_records,
-            'columns': list(df.columns),
-            'symbol': request_data.symbol,
-            'date_range': {
-                'start': '2011-01-01',
-                'end': datetime.now().strftime('%Y-%m-%d')
+            'symbol': request_data.symbol.upper(),
+            'asset_type': request_data.asset_type,
+            'market_info': market_info,
+            'chart_data': chart_data,
+            'summary': {
+                'total_records': len(chart_data),
+                'date_range': {
+                    'start': chart_data[0]['time'] if chart_data else None,
+                    'end': chart_data[-1]['time'] if chart_data else None
+                },
+                'latest_price': latest_data['close'] if latest_data else 0,
+                'price_change': round(price_change, 2),
+                'price_change_percent': round(price_change_percent, 2),
+                'volume': latest_data['volume'] if latest_data else 0
             },
-            'authenticated': current_user is not None
+            'supported_assets': {
+                'vietnam_stocks': 'Tất cả mã cổ phiếu Việt Nam (VD: VCB, FPT, VIC, MSN, HPG...)',
+                'crypto': 'Tất cả mã crypto phổ biến (VD: BTC, ETH, BNB, ADA, SOL, DOGE...)',
+                'note': '💡 Nhập chính xác mã cổ phiếu VN hoặc ký hiệu crypto để xem biểu đồ'
+            },
+            'authenticated': current_user is not None,
+            'generated_at': datetime.now().isoformat()
         }
+        
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail="Server xử lý lỗi. Vui lòng thử lại.")
+        logger.error(f"Error in get_stock_data: {str(e)}")
+        raise HTTPException(
+            status_code=500, 
+            detail="Lỗi khi tải dữ liệu. Vui lòng kiểm tra mã cổ phiếu/crypto và thử lại. " +
+                   "Hệ thống chỉ hỗ trợ cổ phiếu Việt Nam và crypto quốc tế."
+        )
 
 @app.post("/api/technical_signals")
 @check_balance_and_track("technical_analysis")
@@ -1621,130 +1731,195 @@ async def get_fundamental_score(
         raise HTTPException(status_code=500, detail="Server xử lý lỗi. Vui lòng thử lại.")
 
 @app.post("/api/news")
-@check_balance_and_track("news_analysis")
+@check_balance_and_track_streaming("news_analysis")
 async def get_news(
     request_data: NewsRequest,
     current_user: Optional[UserWithWallet] = Depends(get_optional_user),
     request: Request = None
 ):
-    """Lấy tin tức về cổ phiếu từ nhiều nguồn"""
-    try:
-        # Validate inputs
-        if not request_data.symbol:
-            raise HTTPException(status_code=400, detail="Mã cổ phiếu là bắt buộc")
-        
-        # Clean and format symbol
-        symbol = request_data.symbol.upper().strip()
-        
-        # Initialize news aggregation
-        aggregated_news = []
-        news_stats = {
-            'total_articles': 0,
-            'sources_used': [],
-            'date_range': {
-                'from': (datetime.now() - timedelta(days=request_data.look_back_days)).strftime('%Y-%m-%d'),
-                'to': datetime.now().strftime('%Y-%m-%d')
-            },
-            'processing_time': 0
-        }
-        
-        start_time = datetime.now()
-        
-        # Vietnamese stocks - prioritize Vietnamese sources
-        # is_vietnamese_stock = not any(char in symbol for char in ['.', ':']) or symbol.endswith('.VN')
-        
-        # Google News (universal source)
-        if 'google' in request_data.news_sources:
+    """Lấy tin tức về cổ phiếu từ nhiều nguồn với streaming response"""
+    
+    # Check if client wants streaming response (default: true)
+    use_streaming = request.headers.get("Accept", "").find("text/event-stream") != -1 or \
+                   request.query_params.get("stream", "true").lower() == "true"
+    
+    if use_streaming:
+        # Return streaming response
+        async def generate_news():
             try:
-                # Import fetch_google_news with error handling
+                # Validate inputs
+                if not request_data.symbol:
+                    yield f"data: {{\"type\": \"error\", \"message\": \"Mã tài sản là bắt buộc\"}}\n\n"
+                    return
+                
+                # Import streaming function
                 try:
-                    from news_analysis import fetch_google_news
+                    from news_analysis import fetch_news_streaming
                 except ImportError as import_err:
-                    logger.error(f"Cannot import fetch_google_news: {import_err}")
-                    raise HTTPException(status_code=500, detail="News analysis module not available")
+                    logger.error(f"Cannot import fetch_news_streaming: {import_err}")
+                    yield f"data: {{\"type\": \"error\", \"message\": \"News analysis module not available\"}}\n\n"
+                    return
                 
-                # Create search query based on stock type
-                if request_data.asset_type == 'stock':
-                    # Remove .VN suffix for Vietnamese stocks
-                    clean_symbol = symbol.replace('.VN', '')
-                    search_query = f"tin tức cổ phiếu {clean_symbol} OR công ty {clean_symbol} OR mã {clean_symbol}"
-                elif request_data.asset_type == 'crypto':
-                    search_query = f"Important news for crypto currencies ticket {symbol}"
-
-                google_news = fetch_google_news(
-                    search_query,
-                    datetime.now().strftime('%Y-%m-%d'),
-                    request_data.look_back_days
-                )
-                
-                if google_news:
-                    # Parse Google News format
-                    google_articles = parse_google_news_format(google_news, 'Google News')
-                    aggregated_news.extend(google_articles[:request_data.max_results//2])
-                    news_stats['sources_used'].append('google')
-                    
-            except HTTPException:
-                raise
-            except Exception as e:
-                logger.error(f"Error fetching Google News: {e}")
-                # Continue without Google News rather than failing completely
-        
-        # Remove duplicates based on title similarity
-        if aggregated_news:
-            aggregated_news = remove_duplicate_news(aggregated_news)
-        
-        # Add sentiment analysis
-        if aggregated_news:
-            aggregated_news = enhance_news_with_sentiment(aggregated_news)
-        
-        # Sort by relevance score and date
-        if aggregated_news:
-            aggregated_news.sort(key=lambda x: x.get('relevance_score', 0), reverse=True)
-        
-        # Limit results
-        aggregated_news = aggregated_news[:request_data.max_results]
-        
-        # Update statistics
-        news_stats['total_articles'] = len(aggregated_news)
-        news_stats['processing_time'] = (datetime.now() - start_time).total_seconds()
-        
-        # Ensure we return something even if no news found
-        if not aggregated_news:
-            aggregated_news = []
-        
-        # Create response - Fix format to match frontend expectations
-        return {
-            'status': 'success',
-            'data': aggregated_news,
-            'symbol': symbol,
-            'metadata': {
-                'symbol_type': 'vietnamese',
-                'search_parameters': {
-                    'symbol': symbol,
-                    'pages': request_data.pages,
+                # Initialize metadata at the start
+                import json
+                metadata = {
+                    'symbol': request_data.symbol.upper(),
+                    'generated_at': datetime.now().isoformat(),
                     'look_back_days': request_data.look_back_days,
+                    'pages': request_data.pages,
+                    'max_results': request_data.max_results,
                     'news_sources': request_data.news_sources,
-                    'max_results': request_data.max_results
-                },
-                'statistics': news_stats
-            },
-            'authenticated': current_user is not None
-        }
+                    'authenticated': current_user is not None
+                }
+                
+                # Send metadata first
+                yield f"data: {json.dumps({'type': 'metadata', 'data': metadata})}\n\n"
+                
+                # Generate streaming news
+                for chunk in fetch_news_streaming(
+                    symbol=request_data.symbol.upper(),
+                    asset_type=request_data.asset_type,
+                    look_back_days=request_data.look_back_days,
+                    pages=request_data.pages,
+                    max_results=request_data.max_results,
+                    news_sources=request_data.news_sources
+                ):
+                    yield chunk
+                    # Add small delay to make streaming more visible
+                    import asyncio
+                    await asyncio.sleep(0.01)
+                    
+            except Exception as e:
+                logger.error(f"Error in streaming news: {e}")
+                yield f"data: {{\"type\": \"error\", \"message\": \"Server xử lý lỗi. Vui lòng thử lại.\"}}\n\n"
         
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f">>> Lỗi trong /api/news: {e}")
-        logger.error(f">>> Error details: {type(e).__name__}: {str(e)}")
-        raise HTTPException(
-            status_code=500, 
-            detail={
-                'status': 'error',
-                'message': f"Lỗi xử lý tin tức: {str(e)}",
-                'error_type': type(e).__name__,
-                'timestamp': datetime.now().isoformat()
+        return StreamingResponse(
+            generate_news(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Headers": "*",
             }
         )
+    
+    else:
+        # Legacy non-streaming response for backward compatibility
+        try:
+            # Validate inputs
+            if not request_data.symbol:
+                raise HTTPException(status_code=400, detail="Mã cổ phiếu là bắt buộc")
+            
+            # Clean and format symbol
+            symbol = request_data.symbol.upper().strip()
+            
+            # Initialize news aggregation
+            aggregated_news = []
+            news_stats = {
+                'total_articles': 0,
+                'sources_used': [],
+                'date_range': {
+                    'from': (datetime.now() - timedelta(days=request_data.look_back_days)).strftime('%Y-%m-%d'),
+                    'to': datetime.now().strftime('%Y-%m-%d')
+                },
+                'processing_time': 0
+            }
+            
+            start_time = datetime.now()
+            
+            # Google News (universal source)
+            if 'google' in request_data.news_sources:
+                try:
+                    # Import fetch_google_news with error handling
+                    try:
+                        from news_analysis import fetch_google_news
+                    except ImportError as import_err:
+                        logger.error(f"Cannot import fetch_google_news: {import_err}")
+                        raise HTTPException(status_code=500, detail="News analysis module not available")
+                    
+                    # Create search query based on stock type
+                    if request_data.asset_type == 'stock':
+                        # Remove .VN suffix for Vietnamese stocks
+                        clean_symbol = symbol.replace('.VN', '')
+                        search_query = f"tin tức cổ phiếu {clean_symbol} OR công ty {clean_symbol} OR mã {clean_symbol}"
+                    elif request_data.asset_type == 'crypto':
+                        search_query = f"Important news for crypto currencies ticket {symbol}"
+
+                    google_news = fetch_google_news(
+                        search_query,
+                        datetime.now().strftime('%Y-%m-%d'),
+                        request_data.look_back_days
+                    )
+                    
+                    if google_news:
+                        # Parse Google News format
+                        google_articles = parse_google_news_format(google_news, 'Google News')
+                        aggregated_news.extend(google_articles[:request_data.max_results//2])
+                        news_stats['sources_used'].append('google')
+                        
+                except HTTPException:
+                    raise
+                except Exception as e:
+                    logger.error(f"Error fetching Google News: {e}")
+                    # Continue without Google News rather than failing completely
+            
+            # Remove duplicates based on title similarity
+            if aggregated_news:
+                aggregated_news = remove_duplicate_news(aggregated_news)
+            
+            # Add sentiment analysis
+            if aggregated_news:
+                aggregated_news = enhance_news_with_sentiment(aggregated_news)
+            
+            # Sort by relevance score and date
+            if aggregated_news:
+                aggregated_news.sort(key=lambda x: x.get('relevance_score', 0), reverse=True)
+            
+            # Limit results
+            aggregated_news = aggregated_news[:request_data.max_results]
+            
+            # Update statistics
+            news_stats['total_articles'] = len(aggregated_news)
+            news_stats['processing_time'] = (datetime.now() - start_time).total_seconds()
+            
+            # Ensure we return something even if no news found
+            if not aggregated_news:
+                aggregated_news = []
+            
+            # Create response - Fix format to match frontend expectations
+            return {
+                'status': 'success',
+                'data': aggregated_news,
+                'symbol': symbol,
+                'metadata': {
+                    'symbol_type': 'vietnamese',
+                    'search_parameters': {
+                        'symbol': symbol,
+                        'pages': request_data.pages,
+                        'look_back_days': request_data.look_back_days,
+                        'news_sources': request_data.news_sources,
+                        'max_results': request_data.max_results
+                    },
+                    'statistics': news_stats
+                },
+                'authenticated': current_user is not None
+            }
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f">>> Lỗi trong /api/news: {e}")
+            logger.error(f">>> Error details: {type(e).__name__}: {str(e)}")
+            raise HTTPException(
+                status_code=500, 
+                detail={
+                    'status': 'error',
+                    'message': f"Lỗi xử lý tin tức: {str(e)}",
+                    'error_type': type(e).__name__,
+                    'timestamp': datetime.now().isoformat()
+                }
+            )
 
 @app.post("/api/send_alert")
 async def send_alert_api(

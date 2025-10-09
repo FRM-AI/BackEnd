@@ -36,11 +36,31 @@ def load_stock_data_yf(ticker, asset_type='stock', start='2015-01-01', end=datet
 
             return df
     elif asset_type == 'crypto':
-        ticker = ticker.upper() + "-USD"
-        df = yf.download(ticker, start=start, end=end, interval=interval)
-        df.reset_index(inplace=True)
-
-        return df * (yf.Ticker("USDVND=X").history(period="1d", interval="1m"))["Close"].iloc[-1]
+        try:
+            ticker = ticker.upper() + "-USD"
+            df = yf.download(ticker, start=start, end=end, interval=interval)
+            # Fix MultiIndex columns issue
+            if isinstance(df.columns, pd.MultiIndex):
+                df.columns = [col[0] for col in df.columns.values]
+            df.reset_index(inplace=True)
+            
+            # Get USD/VND exchange rate for conversion
+            try:
+                usd_vnd_rate = yf.Ticker("USDVND=X").history(period="1d", interval="1m")["Close"].iloc[-1]
+                # Only convert price columns to VND, keep Date and Volume unchanged
+                price_columns = ['Open', 'High', 'Low', 'Close', 'Adj Close']
+                for col in price_columns:
+                    if col in df.columns:
+                        df[col] = df[col] * usd_vnd_rate
+            except Exception as rate_error:
+                # If can't get exchange rate, just return USD values
+                print(f"Warning: Could not get USD/VND rate, returning USD values: {rate_error}")
+                pass
+            
+            return df
+        except Exception as e:
+            print(f"Error loading crypto data for {ticker}: {e}")
+            return None
 
 # Hàm lấy dữ liệu từ vnstock3
 def get_stock_data(symbols, asset_type, start_date, end_date, source='VCI'):

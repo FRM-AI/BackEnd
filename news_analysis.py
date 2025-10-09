@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
 import time
 import random
+from typing import List
 from tenacity import (
     retry,
     stop_after_attempt,
@@ -38,7 +39,7 @@ def execute_request(url, headers):
 
 def extractNewsData(search_term, date_start, date_end):
     """
-    Extract Google News search results for specified query and date range.
+    Extract search results for specified query and date range.
     search_term: str - the search query
     date_start: str - beginning date in yyyy-mm-dd or mm/dd/yyyy format
     date_end: str - ending date in yyyy-mm-dd or mm/dd/yyyy format
@@ -118,7 +119,7 @@ def fetch_google_news(
     days_back: int,
 ) -> str:
     """
-    Fetch Google News with query, current date, and lookback period
+    Fetch with query, current date, and lookback period
     search_query: Query string to search
     current_date: Current date in yyyy-mm-dd format
     days_back: Number of days to look back
@@ -141,7 +142,7 @@ def fetch_google_news(
     if len(news_data) == 0:
         return ""
 
-    return f"## {search_query} Google News, from {date_previous} to {current_date}:\n\n{news_content}"
+    return f"## {search_query}, from {date_previous} to {current_date}:\n\n{news_content}"
 
 # Configure the API key
 genai.configure(api_key='AIzaSyDYZrQbhP6fc0LHdM1XkESfoCcnUv92jFY')
@@ -287,7 +288,7 @@ def get_insights_streaming(ticker: str, asset_type: str = 'stock', start_date: s
         
         yield f"data: {json.dumps({'type': 'status', 'message': 'Đang tải tin tức...', 'progress': 20})}\n\n"
         
-        news = get_news_for_ticker(ticker=ticker, asset_type=asset_type, look_back_days=look_back_days)
+        news = get_news_for_ticker(ticker=ticker, asset_type=asset_type, look_back_days=30)
         
         # Create model instance
         model = genai.GenerativeModel('gemini-2.0-flash-exp')
@@ -359,5 +360,209 @@ def get_insights_streaming(ticker: str, asset_type: str = 'stock', start_date: s
     except Exception as e:
         yield f"data: {json.dumps({'type': 'error', 'message': f'Lỗi hệ thống: {str(e)}'})}\n\n"
 
+def fetch_news_streaming(
+    symbol: str,
+    asset_type: str = 'stock',
+    look_back_days: int = 30,
+    pages: int = 2,
+    max_results: int = 50,
+    news_sources: List[str] = ['google']
+):
+    """
+    Streaming version of news fetching that yields chunks in real-time.
+    Returns a generator that yields Server-Sent Events formatted data.
+    """
+    import json
+    from datetime import datetime, timedelta
+    
+    symbol = symbol.upper().strip()
+    
+    try:
+        # Initialize news aggregation
+        aggregated_news = []
+        news_stats = {
+            'total_articles': 0,
+            'sources_used': [],
+            'date_range': {
+                'from': (datetime.now() - timedelta(days=look_back_days)).strftime('%Y-%m-%d'),
+                'to': datetime.now().strftime('%Y-%m-%d')
+            },
+            'processing_time': 0
+        }
+        
+        start_time = datetime.now()
+        
+        # Yield initial status
+        yield f"data: {json.dumps({'type': 'status', 'message': 'Đang khởi tạo tìm kiếm tin tức...', 'progress': 5})}\n\n"
+        
+        # Yield news collection start
+        yield f"data: {json.dumps({'type': 'section_start', 'section': 'news_collection', 'title': f'Thu Thập Tin Tức - {symbol}'})}\n\n"
+        
+        # (universal source)
+        if 'google' in news_sources:
+            try:
+                yield f"data: {json.dumps({'type': 'status', 'message': 'Đang tìm kiếm trên...', 'progress': 20})}\n\n"
+                message = f'🔍 **Đang tìm kiếm tin tức về {symbol} trên...**\n\n'
+                yield f"data: {json.dumps({'type': 'content', 'section': 'news_collection', 'text': message})}\n\n"
+
+                # Create search query based on stock type
+                if asset_type == 'stock':
+                    # Remove .VN suffix for Vietnamese stocks
+                    clean_symbol = symbol.replace('.VN', '')
+                    search_query = f"tin tức cổ phiếu {clean_symbol} OR công ty {clean_symbol} OR mã {clean_symbol}"
+                elif asset_type == 'crypto':
+                    search_query = f"Important news for crypto currencies ticket {symbol}"
+
+                google_news = fetch_google_news(
+                    search_query,
+                    datetime.now().strftime('%Y-%m-%d'),
+                    look_back_days
+                )
+                
+                if google_news:
+                    yield f"data: {json.dumps({'type': 'status', 'message': 'Đang xử lý kết quả...', 'progress': 40})}\n\n"
+                    
+                    # Parse format
+                    from app_fastapi import parse_google_news_format
+                    google_articles = parse_google_news_format(google_news, 'Google News')
+                    
+                    message = f'✅ **Tìm thấy {len(google_articles)} bài viết từ**\n\n'
+                    yield f"data: {json.dumps({'type': 'content', 'section': 'news_collection', 'text': message})}\n\n"
+
+                    # Stream individual articles
+                    for i, article in enumerate(google_articles[:max_results//2]):
+                        aggregated_news.append(article)
+                        
+                        # Stream article info
+                        article_text = f"📰 **{article.get('title', 'No title')}**\\n"
+                        article_text += f"📅 {article.get('date', 'No date')} | 🔗 {article.get('source', 'Unknown source')}\\n"
+                        article_text += f"📊 Điểm liên quan: {article.get('relevance_score', 0):.1f}\\n\\n"
+                        
+                        yield f"data: {json.dumps({'type': 'content', 'section': 'news_collection', 'text': article_text})}\n\n"
+                        
+                        # Update progress
+                        progress = min(40 + (i / len(google_articles[:max_results//2])) * 30, 70)
+                        yield f"data: {json.dumps({'type': 'status', 'message': f'Đã xử lý {i+1}/{len(google_articles[:max_results//2])} bài viết...', 'progress': progress})}\n\n"
+                        
+                        # Small delay for streaming effect
+                        import asyncio
+                        import time
+                        time.sleep(0.1)
+                    
+                    news_stats['sources_used'].append('google')
+                    
+                else:
+                    message = '⚠️ **Không tìm thấy tin tức từ**\\n\\n'
+                    yield f"data: {json.dumps({'type': 'content', 'section': 'news_collection', 'text': message})}\n\n"
+                    
+            except Exception as e:
+                error_msg = f"❌ **Lỗi khi tìm kiếm:** {str(e)}\\n\\n"
+                yield f"data: {json.dumps({'type': 'content', 'section': 'news_collection', 'text': error_msg})}\n\n"
+        
+        # Process and enhance news
+        yield f"data: {json.dumps({'type': 'status', 'message': 'Đang xử lý và phân tích tin tức...', 'progress': 75})}\n\n"
+        
+        # Remove duplicates based on title similarity
+        if aggregated_news:
+            message = '🔄 **Đang loại bỏ tin tức trùng lặp...**\\n\\n'
+            yield f"data: {json.dumps({'type': 'content', 'section': 'news_collection', 'text': message})}\n\n"
+            
+            from app_fastapi import remove_duplicate_news
+            original_count = len(aggregated_news)
+            aggregated_news = remove_duplicate_news(aggregated_news)
+            removed_count = original_count - len(aggregated_news)
+            
+            if removed_count > 0:
+                message = f'✅ **Đã loại bỏ {removed_count} tin tức trùng lặp**\\n\\n'
+                yield f"data: {json.dumps({'type': 'content', 'section': 'news_collection', 'text': message})}\n\n"
+        
+        # Add sentiment analysis
+        if aggregated_news:
+            message = '🧠 **Đang phân tích cảm xúc tin tức...**\\n\\n'
+            yield f"data: {json.dumps({'type': 'content', 'section': 'news_collection', 'text': message})}\n\n"
+            
+            from app_fastapi import enhance_news_with_sentiment
+            aggregated_news = enhance_news_with_sentiment(aggregated_news)
+            
+            # Show sentiment summary
+            positive_count = sum(1 for news in aggregated_news if news.get('sentiment') == 'positive')
+            negative_count = sum(1 for news in aggregated_news if news.get('sentiment') == 'negative')
+            neutral_count = len(aggregated_news) - positive_count - negative_count
+            
+            sentiment_text = f"📊 **Phân tích cảm xúc:**\\n"
+            sentiment_text += f"📈 Tích cực: {positive_count} bài\\n"
+            sentiment_text += f"📉 Tiêu cực: {negative_count} bài\\n"
+            sentiment_text += f"📊 Trung tính: {neutral_count} bài\\n\\n"
+            
+            yield f"data: {json.dumps({'type': 'content', 'section': 'news_collection', 'text': sentiment_text})}\n\n"
+        
+        # Sort by relevance score and date
+        if aggregated_news:
+            aggregated_news.sort(key=lambda x: x.get('relevance_score', 0), reverse=True)
+        
+        # Limit results
+        aggregated_news = aggregated_news[:max_results]
+        
+        # Update statistics
+        news_stats['total_articles'] = len(aggregated_news)
+        news_stats['processing_time'] = (datetime.now() - start_time).total_seconds()
+        
+        # End news collection section
+        yield f"data: {json.dumps({'type': 'section_end', 'section': 'news_collection'})}\n\n"
+        
+        # Start news results section
+        yield f"data: {json.dumps({'type': 'status', 'message': 'Đang chuẩn bị kết quả...', 'progress': 90})}\n\n"
+        yield f"data: {json.dumps({'type': 'section_start', 'section': 'news_results', 'title': f'Kết Quả Tin Tức - {len(aggregated_news)} bài viết'})}\n\n"
+        
+        # Stream final results
+        if aggregated_news:
+            for news in aggregated_news:
+                news_data = {
+                    'id': news.get('id', ''),
+                    'title': news.get('title', 'No title'),
+                    'content': news.get('content', news.get('snippet', news.get('summary', news.get('description', 'No content available')))),
+                    'sentiment': news.get('sentiment', 'neutral'),
+                    'score': news.get('sentiment_score', news.get('relevance_score', 0)),
+                    'publishedAt': news.get('published_at', news.get('date', datetime.now().isoformat())),
+                    'source': news.get('source', 'Unknown'),
+                    'url': news.get('url', news.get('link', '#'))  # Add URL field
+                }
+                
+                yield f"data: {json.dumps({'type': 'news_item', 'section': 'news_results', 'data': news_data})}\n\n"
+        else:
+            message = '⚠️ **Không tìm thấy tin tức nào phù hợp.**\\n\\n'
+            yield f"data: {json.dumps({'type': 'content', 'section': 'news_results', 'text': message})}\n\n"
+        
+        # End news results section
+        yield f"data: {json.dumps({'type': 'section_end', 'section': 'news_results'})}\n\n"
+        
+        # Final response data
+        final_response = {
+            'status': 'success',
+            'data': aggregated_news,
+            'symbol': symbol,
+            'metadata': {
+                'symbol_type': 'vietnamese' if not any(char in symbol for char in ['.', ':']) or symbol.endswith('.VN') else 'global',
+                'search_parameters': {
+                    'symbol': symbol,
+                    'pages': pages,
+                    'look_back_days': look_back_days,
+                    'news_sources': news_sources,
+                    'max_results': max_results
+                },
+                'statistics': news_stats
+            }
+        }
+        
+        # Send final data
+        yield f"data: {json.dumps({'type': 'final_data', 'data': final_response})}\n\n"
+        print(final_response)
+        
+        # Completion
+        yield f"data: {json.dumps({'type': 'complete', 'message': f'Hoàn tất! Tìm thấy {len(aggregated_news)} tin tức về {symbol}', 'progress': 100})}\n\n"
+        
+    except Exception as e:
+        yield f"data: {json.dumps({'type': 'error', 'message': f'Lỗi hệ thống: {str(e)}'})}\n\n"
+
 if __name__ == "__main__":
-    print(fetch_google_news("Tin tuc chung khoan TCB", '2025-07-10', 30))
+    print(fetch_news_streaming("TCB"))
