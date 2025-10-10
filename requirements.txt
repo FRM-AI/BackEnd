@@ -33,6 +33,11 @@ tenacity
 # Google Generative AI
 google-generativeai
 
+# Redis and caching
+redis
+apscheduler
+pytz
+
 # Environment and utilities
 python-dotenv
 email-validator

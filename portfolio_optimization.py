@@ -21,8 +21,83 @@ def get_company_info_yf(ticker):
         pass
         return None
 
+def load_stock_data_vnquant_for_portfolio(ticker, asset_type='stock', start='2015-01-01', end=datetime.now().strftime('%Y-%m-%d'), interval='1d'):
+    """Tải dữ liệu giá cổ phiếu từ VNQuant trước, fallback sang Yahoo Finance cho portfolio optimization"""
+    if asset_type == 'stock':
+        try:
+            # Import here to avoid circular import
+            from data_loader import load_stock_data_vn
+            
+            # Try VNQuant first for Vietnamese stocks
+            df_vn = load_stock_data_vn(ticker.upper(), start, end)
+
+            import sys
+            sys.exit()
+            
+            if not df_vn.empty:
+                # Convert VNQuant format to standard format
+                df_converted = pd.DataFrame()
+                df_converted['Date'] = pd.to_datetime(df_vn['date'])
+                df_converted['Open'] = df_vn['open'].astype(float)
+                df_converted['High'] = df_vn['high'].astype(float) 
+                df_converted['Low'] = df_vn['low'].astype(float)
+                df_converted['Close'] = df_vn['close'].astype(float)
+                df_converted['Volume'] = df_vn['volume_match'].astype(float)
+                
+                # Filter by date range
+                start_date = pd.to_datetime(start)
+                end_date = pd.to_datetime(end)
+                df_converted = df_converted[
+                    (df_converted['Date'] >= start_date) & 
+                    (df_converted['Date'] <= end_date)
+                ].reset_index(drop=True)
+                
+                return df_converted
+            else:
+                pass
+                
+        except:
+            # Fallback to Yahoo Finance with .VN suffix
+            try:
+                ticker = ticker.upper() + ".VN"
+                df = yf.download(ticker, start=start, end=end, interval=interval)
+                df.reset_index(inplace=True)
+
+                return df
+            except:
+                df = yf.download(ticker, start=start, end=end, interval=interval)
+                df.reset_index(inplace=True)
+
+                return df
+    elif asset_type == 'crypto':
+        try:
+            ticker = ticker.upper() + "-USD"
+            df = yf.download(ticker, start=start, end=end, interval=interval)
+            # Fix MultiIndex columns issue
+            if isinstance(df.columns, pd.MultiIndex):
+                df.columns = [col[0] for col in df.columns.values]
+            df.reset_index(inplace=True)
+            
+            # Get USD/VND exchange rate for conversion
+            try:
+                usd_vnd_rate = yf.Ticker("USDVND=X").history(period="1d", interval="1m")["Close"].iloc[-1]
+                # Only convert price columns to VND, keep Date and Volume unchanged
+                price_columns = ['Open', 'High', 'Low', 'Close', 'Adj Close']
+                for col in price_columns:
+                    if col in df.columns:
+                        df[col] = df[col] * usd_vnd_rate
+            except Exception as rate_error:
+                # If can't get exchange rate, just return USD values
+                print(f"Warning: Could not get USD/VND rate, returning USD values: {rate_error}")
+                pass
+            
+            return df
+        except Exception as e:
+            print(f"Error loading crypto data for {ticker}: {e}")
+            return None
+
 def load_stock_data_yf(ticker, asset_type='stock', start='2015-01-01', end=datetime.now().strftime('%Y-%m-%d'), interval='1d'):
-    """Tải dữ liệu giá cổ phiếu từ Yahoo Finance"""
+    """Tải dữ liệu giá cổ phiếu từ Yahoo Finance (legacy function for compatibility)"""
     if asset_type == 'stock':
         try:
             ticker = ticker.upper() + ".VN"
@@ -62,14 +137,14 @@ def load_stock_data_yf(ticker, asset_type='stock', start='2015-01-01', end=datet
             print(f"Error loading crypto data for {ticker}: {e}")
             return None
 
-# Hàm lấy dữ liệu từ vnstock3
+# Hàm lấy dữ liệu từ vnquant
 def get_stock_data(symbols, asset_type, start_date, end_date, source='VCI'):
     df_all = pd.DataFrame()
     for symbol in symbols:
         try:
             # stock = Vnstock().stock(symbol=symbol, source=source)
             # df = stock.quote.history(start=start_date, end=end_date, interval='1D')
-            df = load_stock_data_yf(symbol, asset_type=asset_type, start=start_date, end=end_date)
+            df = load_stock_data_vnquant_for_portfolio(symbol, asset_type=asset_type, start=start_date, end=end_date)
             # df = df[['time', 'close']].set_index('time')
             df = df[['Date', 'Close']].set_index('Date')
             df.columns = [symbol]

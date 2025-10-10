@@ -33,6 +33,10 @@ import logging
 
 from pathlib import Path
 
+# Redis and Cache Management
+from redis_config import get_redis_manager
+from stock_cache_manager import get_cache_manager
+
 # Get the directory where this script is located
 CURRENT_DIR = Path(__file__).parent
 TEMPLATES_DIR = CURRENT_DIR.parent / "templates"  # Go up one level to FRM-AI/templates
@@ -109,7 +113,7 @@ from social_manager import (
 )
 from chat_manager import chat_manager, ChatMessage, Conversation
 
-from data_loader import load_stock_data_vn, load_stock_data_yf
+from data_loader import load_stock_data_vn, load_stock_data_vnquant, load_stock_data_yf, load_stock_data_cached, get_stock_data_for_api
 from feature_engineering import add_technical_indicators_vnquant, add_technical_indicators_yf
 from technical_analysis import detect_signals
 from fundamental_scoring_vn import score_stock, rank_stocks
@@ -533,6 +537,18 @@ async def startup_event():
         else:
             logger.error("❌ Supabase connection failed")
         
+        # Initialize cache manager and start scheduler
+        cache_manager = get_cache_manager()
+        cache_manager.start_scheduler()
+        logger.info("✅ Stock data cache manager initialized and scheduled")
+        
+        # Test Redis connection
+        redis_manager = get_redis_manager()
+        if redis_manager.is_connected():
+            logger.info("✅ Redis connection successful")
+        else:
+            logger.error("❌ Redis connection failed")
+        
         # Initialize chat manager
         global chat_manager
         chat_manager = ChatManager()
@@ -540,6 +556,19 @@ async def startup_event():
         
     except Exception as e:
         logger.error(f"❌ Startup error: {e}")
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Cleanup on application shutdown"""
+    logger.info("Shutting down FRM-AI application...")
+    try:
+        # Stop cache manager scheduler
+        cache_manager = get_cache_manager()
+        cache_manager.stop_scheduler()
+        logger.info("✅ Cache manager scheduler stopped")
+        
+    except Exception as e:
+        logger.error(f"❌ Shutdown error: {e}")
 
 # Initialize global variables
 chat_manager: Optional[ChatManager] = None
@@ -1537,15 +1566,56 @@ async def get_stock_data(
     current_user: Optional[UserWithWallet] = Depends(get_optional_user),
     request: Request = None
 ):
-    """Lấy dữ liệu giá cổ phiếu và chỉ báo kỹ thuật cho biểu đồ chuyên nghiệp"""
+    """Lấy dữ liệu giá cổ phiếu và chỉ báo kỹ thuật cho biểu đồ chuyên nghiệp (với Redis cache)"""
     try:
-        # Load data based on asset type
-        df = load_stock_data_yf(
-            request_data.symbol, 
-            request_data.asset_type, 
-            "2000-01-01", 
-            datetime.now().strftime('%Y-%m-%d')
-        )
+        # Get data directly from cache in API format
+        cached_result = get_stock_data_for_api(request_data.symbol, request_data.asset_type)
+        
+        if cached_result:
+            # Update authentication status
+            cached_result['authenticated'] = current_user is not None
+            cached_result['generated_at'] = datetime.now().isoformat()
+            
+            # Filter by date range if specified
+            if request_data.start_date or request_data.end_date:
+                chart_data = cached_result.get('chart_data', [])
+                if chart_data:
+                    start_timestamp = int(pd.to_datetime(request_data.start_date).timestamp()) if request_data.start_date else 0
+                    end_timestamp = int(pd.to_datetime(request_data.end_date).timestamp()) if request_data.end_date else float('inf')
+                    
+                    filtered_data = [
+                        item for item in chart_data 
+                        if start_timestamp <= item.get('time', 0) <= end_timestamp
+                    ]
+                    
+                    cached_result['chart_data'] = filtered_data
+                    cached_result['summary']['total_records'] = len(filtered_data)
+                    
+                    if filtered_data:
+                        cached_result['summary']['date_range'] = {
+                            'start': filtered_data[0]['time'],
+                            'end': filtered_data[-1]['time']
+                        }
+                        cached_result['summary']['latest_price'] = filtered_data[-1]['close']
+                        cached_result['summary']['volume'] = filtered_data[-1]['volume']
+            
+            return cached_result
+        
+        # Fallback to original method if cache fails
+        if request_data.asset_type == 'stock':
+            df = load_stock_data_vnquant(
+                request_data.symbol, 
+                request_data.asset_type, 
+                "2000-01-01", 
+                datetime.now().strftime('%Y-%m-%d')
+            )
+        else:
+            df = load_stock_data_yf(
+                request_data.symbol, 
+                request_data.asset_type, 
+                "2000-01-01", 
+                datetime.now().strftime('%Y-%m-%d')
+            )
         
         if df is None or df.empty:
             raise HTTPException(
@@ -1673,10 +1743,17 @@ async def get_technical_signals(
     current_user: Optional[UserWithWallet] = Depends(get_optional_user),
     request: Request = None
 ):
-    """Phát hiện tín hiệu kỹ thuật"""
+    """Phát hiện tín hiệu kỹ thuật (với Redis cache)"""
     try:
-        # Load and analyze data
-        df = load_stock_data_yf(request_data.symbol, request_data.asset_type, "2000-01-01", datetime.now().strftime('%Y-%m-%d'))
+        # Load and analyze data using cached function
+        df = load_stock_data_cached(request_data.symbol, request_data.asset_type)
+        
+        if df is None or df.empty:
+            raise HTTPException(
+                status_code=404, 
+                detail=f"Không tìm thấy dữ liệu cho mã {request_data.symbol}"
+            )
+        
         df = add_technical_indicators_yf(df)
         
         # Detect signals
@@ -2292,15 +2369,131 @@ async def get_system_status():
     except Exception:
         db_status = "error"
     
+    # Test Redis connection
+    try:
+        redis_manager = get_redis_manager()
+        redis_status = "connected" if redis_manager.is_connected() else "disconnected"
+    except Exception:
+        redis_status = "error"
+    
+    # Get cache status
+    try:
+        cache_manager = get_cache_manager()
+        cache_status = cache_manager.get_cache_status()
+    except Exception as e:
+        cache_status = {"error": str(e)}
+    
     return {
         "success": True,
         "status": {
             "database": db_status,
+            "redis": redis_status,
+            "cache": cache_status,
             "chat_system": "active" if chat_manager else "inactive",
             "performance": performance_monitor.get_stats(),
             "timestamp": datetime.now().isoformat()
         }
     }
+
+# ================================
+# CACHE MANAGEMENT ROUTES
+# ================================
+
+@app.get("/api/cache/status")
+async def get_cache_status():
+    """Get cache system status and statistics"""
+    try:
+        cache_manager = get_cache_manager()
+        return {
+            "success": True,
+            "cache_status": cache_manager.get_cache_status()
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
+@app.post("/api/cache/refresh")
+async def trigger_cache_refresh(
+    admin_user: UserWithWallet = Depends(require_admin)
+):
+    """Manually trigger a full cache refresh (Admin only)"""
+    try:
+        cache_manager = get_cache_manager()
+        
+        # Run cache refresh in background
+        import threading
+        thread = threading.Thread(target=cache_manager.daily_full_fetch)
+        thread.start()
+        
+        return {
+            "success": True,
+            "message": "Cache refresh triggered successfully",
+            "note": "Refresh is running in background"
+        }
+    except Exception as e:
+        logger.error(f"Error triggering cache refresh: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to trigger cache refresh: {str(e)}")
+
+@app.delete("/api/cache/clear")
+async def clear_cache(
+    admin_user: UserWithWallet = Depends(require_admin)
+):
+    """Clear all cached data (Admin only)"""
+    try:
+        redis_manager = get_redis_manager()
+        redis_manager.clear_cache()
+        
+        return {
+            "success": True,
+            "message": "Cache cleared successfully"
+        }
+    except Exception as e:
+        logger.error(f"Error clearing cache: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to clear cache: {str(e)}")
+
+@app.get("/api/cache/symbols")
+async def get_cached_symbols():
+    """Get list of cached symbols"""
+    try:
+        redis_manager = get_redis_manager()
+        symbols = redis_manager.get_cached_symbols()
+        
+        return {
+            "success": True,
+            "cached_symbols": symbols,
+            "count": len(symbols)
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
+@app.get("/api/cache/symbol/{symbol}")
+async def check_symbol_cache(symbol: str):
+    """Check if a specific symbol is cached"""
+    try:
+        redis_manager = get_redis_manager()
+        is_cached = redis_manager.is_symbol_cached(symbol)
+        cached_data = redis_manager.get_stock_data(symbol) if is_cached else None
+        
+        return {
+            "success": True,
+            "symbol": symbol.upper(),
+            "is_cached": is_cached,
+            "cache_info": {
+                "last_updated": cached_data.get("last_updated") if cached_data else None,
+                "data_points": cached_data.get("data_points") if cached_data else 0,
+                "asset_type": cached_data.get("asset_type") if cached_data else None
+            } if cached_data else None
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e)
+        }
 
 if __name__ == '__main__':
     uvicorn.run(

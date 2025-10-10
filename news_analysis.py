@@ -1,6 +1,6 @@
 import google.generativeai as genai
 
-from data_loader import *
+from data_loader import load_stock_data_vnquant, load_stock_data_yf, load_stock_data_vn
 from feature_engineering import *
 from technical_analysis import *
 
@@ -240,7 +240,10 @@ def get_news_for_ticker(ticker: str, asset_type: str = 'stock', look_back_days: 
 
 def get_insights(ticker: str, asset_type: str = 'stock', start_date: str = (datetime.now() - timedelta(days=365)).strftime('%Y-%m-%d'), end_date: str = datetime.now().strftime('%Y-%m-%d'), look_back_days: int=30):
     ticker = ticker.upper()
-    df = load_stock_data_yf(ticker, asset_type, start_date, end_date)
+    if asset_type == 'stock':
+        df = load_stock_data_vnquant(ticker, asset_type, start_date, end_date)
+    else:
+        df = load_stock_data_yf(ticker, asset_type, start_date, end_date)
     df_ta = add_technical_indicators_yf(df)
     signals = detect_signals(df_ta)
 
@@ -282,7 +285,10 @@ def get_insights_streaming(ticker: str, asset_type: str = 'stock', start_date: s
         # Yield initial status
         yield f"data: {json.dumps({'type': 'status', 'message': 'Đang tải dữ liệu chứng khoán...', 'progress': 10})}\n\n"
         
-        df = load_stock_data_yf(ticker, asset_type, start_date, end_date)
+        if asset_type == 'stock':
+            df = load_stock_data_vnquant(ticker, asset_type, start_date, end_date)
+        else:
+            df = load_stock_data_yf(ticker, asset_type, start_date, end_date)
         df_ta = add_technical_indicators_yf(df)
         signals = detect_signals(df_ta)
         

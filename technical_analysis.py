@@ -506,8 +506,9 @@ def optimize_signal_combo(df, combos=None):
     return sorted(results, key=lambda x: x['sharpe_ratio'], reverse=True)
 
 def main():
-    # Load and process data
-    df = load_stock_data_yf("VCB", start="2024-01-01")
+    # Load and process data - use VNQuant first for Vietnamese stocks
+    from data_loader import load_stock_data_vnquant
+    df = load_stock_data_vnquant("VCB", start="2024-01-01")
 
     df = add_technical_indicators_yf(df)
     
