@@ -25,7 +25,6 @@ import logging
 import time
 
 # Import custom modules
-from chat_manager import ChatManager, ChatMessage, ConnectionManager
 import re
 from difflib import SequenceMatcher
 import uvicorn
@@ -107,11 +106,6 @@ from notification_manager import (
     BulkNotificationCreate
 )
 from database import database_manager
-from social_manager import (
-    social_manager, UserProfile, UserProfileUpdate, UserProfileInfo, 
-    FollowInfo, Post, PostCreate, PostUpdate, Comment, CommentCreate
-)
-from chat_manager import chat_manager, ChatMessage, Conversation
 
 from data_loader import load_stock_data_vn, load_stock_data_vnquant, load_stock_data_yf, load_stock_data_cached, get_stock_data_for_api
 from feature_engineering import add_technical_indicators_vnquant, add_technical_indicators_yf
@@ -119,7 +113,7 @@ from technical_analysis import detect_signals
 from fundamental_scoring_vn import score_stock, rank_stocks
 from portfolio_optimization import optimize_portfolio, calculate_manual_portfolio
 from alert import send_alert
-from news_analysis import get_insights, get_insights_streaming
+from news_analysis import get_insights_streaming
 # from stock_analysis import analyze_stock
 
 # Additional Pydantic Models for new features
@@ -549,11 +543,6 @@ async def startup_event():
         else:
             logger.error("❌ Redis connection failed")
         
-        # Initialize chat manager
-        global chat_manager
-        chat_manager = ChatManager()
-        logger.info("✅ Chat manager initialized")
-        
     except Exception as e:
         logger.error(f"❌ Startup error: {e}")
 
@@ -569,9 +558,6 @@ async def shutdown_event():
         
     except Exception as e:
         logger.error(f"❌ Shutdown error: {e}")
-
-# Initialize global variables
-chat_manager: Optional[ChatManager] = None
 
 # ================================
 # AUTHENTICATION ROUTES
@@ -822,173 +808,6 @@ async def check_service_balance(
     return await service_manager.check_balance_for_service(current_user.id, service_type)
 
 # ================================
-# SOCIAL MEDIA ROUTES
-# ================================
-
-# ---- User Profile Management ----
-
-@app.get("/api/users/{user_id}/profile", response_model=UserProfileInfo)
-async def get_user_profile(
-    user_id: str,
-    current_user: Optional[UserWithWallet] = Depends(get_optional_user)
-):
-    """Lấy thông tin hồ sơ người dùng"""
-    current_user_id = current_user.id if current_user else None
-    return await social_manager.get_user_profile(user_id, current_user_id)
-
-@app.put("/api/users/{user_id}/profile", response_model=UserProfile)
-async def update_user_profile(
-    user_id: str,
-    profile_data: UserProfileUpdate,
-    current_user: UserWithWallet = Depends(get_current_user)
-):
-    """Cập nhật hồ sơ cá nhân"""
-    if current_user.id != user_id:
-        raise HTTPException(status_code=403, detail="Không có quyền chỉnh sửa hồ sơ này")
-    return await social_manager.update_user_profile(user_id, profile_data)
-
-@app.get("/api/users/{user_id}/followers", response_model=List[FollowInfo])
-async def get_user_followers(
-    user_id: str,
-    limit: int = 50,
-    offset: int = 0
-):
-    """Lấy danh sách người theo dõi"""
-    return await social_manager.get_followers(user_id, limit, offset)
-
-@app.get("/api/users/{user_id}/following", response_model=List[FollowInfo])
-async def get_user_following(
-    user_id: str,
-    limit: int = 50,
-    offset: int = 0
-):
-    """Lấy danh sách người đang theo dõi"""
-    return await social_manager.get_following(user_id, limit, offset)
-
-@app.post("/api/users/{user_id}/follow")
-async def follow_user(
-    user_id: str,
-    current_user: UserWithWallet = Depends(get_current_user)
-):
-    """Theo dõi người dùng khác"""
-    return await social_manager.follow_user(current_user.id, user_id)
-
-@app.delete("/api/users/{user_id}/unfollow")
-async def unfollow_user(
-    user_id: str,
-    current_user: UserWithWallet = Depends(get_current_user)
-):
-    """Bỏ theo dõi người dùng khác"""
-    return await social_manager.unfollow_user(current_user.id, user_id)
-
-# ---- Post Management ----
-
-@app.post("/api/posts", response_model=Post)
-async def create_post(
-    post_data: PostCreate,
-    current_user: UserWithWallet = Depends(get_current_user)
-):
-    """Tạo bài viết (blog, phân tích)"""
-    return await social_manager.create_post(current_user.id, post_data)
-
-@app.get("/api/posts/{post_id}")
-async def get_post_detail(
-    post_id: str,
-    current_user: Optional[UserWithWallet] = Depends(get_optional_user)
-):
-    """Lấy chi tiết bài viết"""
-    try:
-        post = await social_manager.get_post(post_id, current_user.id if current_user else None)
-        return post
-    except Exception as e:
-        logger.error(f"Error getting post detail: {str(e)}")
-        raise HTTPException(status_code=500, detail="Lỗi khi lấy chi tiết bài viết")
-
-@app.get("/api/posts", response_model=List[Post])
-async def get_posts(
-    user_id: Optional[str] = None,
-    tags: Optional[List[str]] = None,
-    limit: int = 20,
-    offset: int = 0,
-    current_user: Optional[UserWithWallet] = Depends(get_optional_user)
-):
-    """Lấy danh sách bài viết (có thể lọc theo người dùng, mã cổ phiếu, hoặc loại nội dung)"""
-    current_user_id = current_user.id if current_user else None
-    return await social_manager.get_posts(user_id, tags, limit, offset, current_user_id)
-
-@app.get("/api/posts/{post_id}", response_model=Post)
-async def get_post_detail(
-    post_id: str,
-    current_user: Optional[UserWithWallet] = Depends(get_optional_user)
-):
-    """Lấy chi tiết bài viết"""
-    current_user_id = current_user.id if current_user else None
-    return await social_manager.get_post(post_id, current_user_id)
-
-@app.put("/api/posts/{post_id}", response_model=Post)
-async def update_post(
-    post_id: str,
-    update_data: PostUpdate,
-    current_user: UserWithWallet = Depends(get_current_user)
-):
-    """Cập nhật bài viết"""
-    return await social_manager.update_post(post_id, current_user.id, update_data)
-
-@app.delete("/api/posts/{post_id}")
-async def delete_post(
-    post_id: str,
-    current_user: UserWithWallet = Depends(get_current_user)
-):
-    """Xóa bài viết"""
-    return await social_manager.delete_post(post_id, current_user.id)
-
-# ---- Comment Management ----
-
-@app.post("/api/posts/{post_id}/comments", response_model=Comment)
-async def create_comment(
-    post_id: str,
-    comment_data: CommentCreate,
-    current_user: UserWithWallet = Depends(get_current_user)
-):
-    """Bình luận dưới bài viết"""
-    return await social_manager.create_comment(post_id, current_user.id, comment_data)
-
-@app.get("/api/posts/{post_id}/comments", response_model=List[Comment])
-async def get_post_comments(
-    post_id: str,
-    limit: int = 50,
-    offset: int = 0
-):
-    """Lấy danh sách bình luận"""
-    return await social_manager.get_comments(post_id, limit, offset)
-
-@app.delete("/api/comments/{comment_id}")
-async def delete_comment(
-    comment_id: str,
-    current_user: UserWithWallet = Depends(get_current_user)
-):
-    """Xóa bình luận"""
-    return await social_manager.delete_comment(comment_id, current_user.id)
-
-# ---- Like Management (Optional) ----
-
-@app.post("/api/posts/{post_id}/like")
-async def like_post(
-    post_id: str,
-    current_user: UserWithWallet = Depends(get_current_user)
-):
-    """Thích bài viết"""
-    return await social_manager.like_post(post_id, current_user.id)
-
-@app.delete("/api/posts/{post_id}/like")
-async def unlike_post(
-    post_id: str,
-    current_user: UserWithWallet = Depends(get_current_user)
-):
-    """Bỏ thích bài viết"""
-    return await social_manager.unlike_post(post_id, current_user.id)
-
-# ================================
 # ADMIN ROUTES
 # ================================
 
@@ -1059,130 +878,6 @@ async def cleanup_old_data(
     """Dọn dẹp dữ liệu cũ (admin)"""
     return await database_manager.cleanup_old_data(days_to_keep)
 
-# ---- Admin Social Management ----
-
-@app.get("/api/admin/posts")
-async def get_all_posts_admin(
-    limit: int = 50,
-    offset: int = 0,
-    user_id: Optional[str] = None,
-    admin_user: UserWithWallet = Depends(require_admin)
-):
-    """Lấy tất cả bài viết (admin)"""
-    return await social_manager.get_posts(user_id, None, limit, offset, None)
-
-@app.delete("/api/admin/posts/{post_id}")
-async def delete_post_admin(
-    post_id: str,
-    admin_user: UserWithWallet = Depends(require_admin)
-):
-    """Xóa bài viết (admin)"""
-    # Admin có thể xóa bất kỳ bài viết nào
-    try:
-        # Get post info first to get user_id for the delete function
-        post = await social_manager.get_post(post_id, None)
-        return await social_manager.delete_post(post_id, post.user_id)
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Admin delete post error: {e}")
-        raise HTTPException(status_code=500, detail="Lỗi hệ thống khi xóa bài viết")
-
-@app.delete("/api/admin/comments/{comment_id}")
-async def delete_comment_admin(
-    comment_id: str,
-    admin_user: UserWithWallet = Depends(require_admin)
-):
-    """Xóa bình luận (admin)"""
-    # Admin có thể xóa bất kỳ bình luận nào
-    try:
-        # Get comment info first
-        supabase = get_supabase_client()
-        comment_result = supabase.table('comments').select("user_id").eq('id', comment_id).execute()
-        
-        if not comment_result.data:
-            raise HTTPException(status_code=404, detail="Bình luận không tồn tại")
-        
-        user_id = comment_result.data[0]['user_id']
-        return await social_manager.delete_comment(comment_id, user_id)
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Admin delete comment error: {e}")
-        raise HTTPException(status_code=500, detail="Lỗi hệ thống khi xóa bình luận")
-
-@app.get("/api/admin/social-stats")
-async def get_social_stats_admin(
-    days: int = 30,
-    admin_user: UserWithWallet = Depends(require_admin)
-):
-    """Thống kê mạng xã hội (admin)"""
-    try:
-        supabase = get_supabase_client()
-        
-        # Get basic stats
-        posts_total = supabase.table('posts').select("id", count="exact").execute()
-        comments_total = supabase.table('comments').select("id", count="exact").execute()
-        follows_total = supabase.table('follows').select("follower_id", count="exact").execute()
-        
-        # Get recent activity
-        from datetime import datetime, timedelta
-        recent_date = (datetime.now() - timedelta(days=days)).isoformat()
-        
-        posts_recent = supabase.table('posts').select("id", count="exact").gte('created_at', recent_date).execute()
-        comments_recent = supabase.table('comments').select("id", count="exact").gte('created_at', recent_date).execute()
-        follows_recent = supabase.table('follows').select("follower_id", count="exact").gte('followed_at', recent_date).execute()
-        
-        # Get top users by posts
-        top_posters = supabase.table('posts').select(
-            "user_id, users!posts_user_id_fkey(full_name, email)"
-        ).execute()
-        
-        # Count posts per user
-        user_post_counts = {}
-        for post in top_posters.data:
-            user_id = post['user_id']
-            user_info = post['users']
-            if user_id not in user_post_counts:
-                user_post_counts[user_id] = {
-                    'count': 0,
-                    'user_info': user_info
-                }
-            user_post_counts[user_id]['count'] += 1
-        
-        # Sort by post count
-        top_posters_sorted = sorted(
-            user_post_counts.items(), 
-            key=lambda x: x[1]['count'], 
-            reverse=True
-        )[:10]
-        
-        return {
-            "total_stats": {
-                "posts": posts_total.count or 0,
-                "comments": comments_total.count or 0,
-                "follows": follows_total.count or 0
-            },
-            "recent_activity": {
-                f"posts_last_{days}_days": posts_recent.count or 0,
-                f"comments_last_{days}_days": comments_recent.count or 0,
-                f"follows_last_{days}_days": follows_recent.count or 0
-            },
-            "top_posters": [
-                {
-                    "user_id": user_id,
-                    "posts_count": data['count'],
-                    "full_name": data['user_info'].get('full_name'),
-                    "email": data['user_info'].get('email')
-                }
-                for user_id, data in top_posters_sorted
-            ]
-        }
-        
-    except Exception as e:
-        logger.error(f"Get social stats error: {e}")
-        raise HTTPException(status_code=500, detail="Lỗi hệ thống khi lấy thống kê mạng xã hội")
-
 # ================================
 # DATA EXPORT ROUTES (GDPR)
 # ================================
@@ -1200,361 +895,7 @@ async def delete_user_account(current_user: UserWithWallet = Depends(get_current
         return {"message": "Tài khoản đã được xóa thành công"}
     else:
         raise HTTPException(status_code=500, detail="Lỗi khi xóa tài khoản")
-
-# ================================
-# TEMPLATE ROUTES (HTML pages)
-# ================================
-
-# ================================
-# REMOVED: HTML TEMPLATE ROUTES
-# All frontend pages are now handled by Next.js
-# Backend only provides API endpoints
-# ================================
-
-# ================================
-# WEBSOCKET FOR REAL-TIME CHAT
-# ================================
-
-# ================================
-# WEBSOCKET FOR REAL-TIME CHAT
-# ================================
-
-@app.websocket("/ws/chat")
-async def chat_websocket(
-    websocket: WebSocket, 
-    user_id: str = Query(...)
-):
-    """WebSocket endpoint for real-time chat - Using cookie-based session authentication"""
-    try:
-        # Parse cookies from WebSocket headers
-        cookies = parse_cookies_from_websocket(websocket)
-        session_id = cookies.get('session_id')
-        
-        # Verify session exists and is valid
-        if not session_id:
-            logger.warning("No session_id found in WebSocket cookies")
-            await websocket.close(code=1008, reason="Authentication failed - No session")
-            return
-        
-        # Verify user authentication using session
-        session = await auth_manager.get_session(session_id)
-        if not session or session['user_id'] != user_id:
-            logger.warning(f"Invalid session for user {user_id}")
-            await websocket.close(code=1008, reason="Authentication failed - Invalid session")
-            return
-        
-        # Connect user to chat manager
-        await chat_manager.connection_manager.connect(websocket, user_id)
-        
-        # Get user info for chat
-        supabase = get_supabase_client()
-        user_info = supabase.table("users")\
-            .select("full_name, email")\
-            .eq("id", user_id)\
-            .execute()
-        
-        user_name = "Unknown User"
-        if user_info.data:
-            user_name = user_info.data[0].get("full_name") or user_info.data[0].get("email")
-        
-        logger.info(f"WebSocket connected for user: {user_name} (ID: {user_id})")
-        
-        try:
-            while True:
-                # Receive message from client
-                data = await websocket.receive_json()
-                event_type = data.get("type")
-                
-                # Extend session on activity (using session_id from cookie)
-                await auth_manager.extend_session(session_id)
-                
-                if event_type == "message":
-                    # Handle chat message
-                    message_data = data.get("data")
-                    
-                    message = ChatMessage(
-                        conversation_id=message_data.get("conversation_id"),
-                        sender_id=user_id,
-                        content=message_data.get("content"),
-                        message_type=message_data.get("message_type", "text"),
-                        metadata=message_data.get("metadata")
-                    )
-                    
-                    # Send message through chat manager
-                    sent_message = await chat_manager.send_message(message)
-                    
-                    # Send confirmation back to sender
-                    await websocket.send_json({
-                        "type": "message_sent",
-                        "data": {
-                            "id": sent_message.id,
-                            "conversation_id": sent_message.conversation_id,
-                            "created_at": sent_message.created_at.isoformat()
-                        }
-                    })
-                
-                elif event_type == "typing":
-                    # Handle typing indicators
-                    conversation_id = data.get("conversation_id")
-                    is_typing = data.get("is_typing", False)
-                    
-                    await chat_manager.handle_typing_indicator(
-                        user_id, conversation_id, is_typing, user_name
-                    )
-                
-                elif event_type == "join_conversation":
-                    # Handle joining a conversation (for group chats)
-                    conversation_id = data.get("conversation_id")
-                    # Add user to conversation participants if not already
-                    # Implementation here...
-                    pass
-                
-                elif event_type == "ping":
-                    # Handle keep-alive ping
-                    await websocket.send_json({"type": "pong"})
-                    
-        except Exception as e:
-            logger.error(f"WebSocket error for user {user_id}: {e}")
-        
-    except Exception as e:
-        logger.error(f"WebSocket connection error: {e}")
-        await websocket.close(code=1011, reason="Server error")
     
-    finally:
-        # Disconnect user from chat manager
-        chat_manager.connection_manager.disconnect(websocket, user_id)
-
-# ================================
-# CHAT API ENDPOINTS
-# ================================
-
-# ================================
-# CHAT API ENDPOINTS - OPTIMIZED
-# ================================
-
-@app.post("/api/chat/conversations")
-async def create_conversation(
-    request: CreateConversationRequest,
-    current_user: UserWithWallet = Depends(get_current_user)
-):
-    """Create a new conversation - Optimized for production"""
-    try:
-        conversation = await chat_manager.create_conversation(
-            created_by=current_user.id,
-            participant_ids=request.participant_ids,
-            name=request.name
-        )
-        
-        return {
-            "success": True,
-            "conversation": {
-                "id": conversation.id,
-                "name": conversation.name,
-                "is_group": conversation.is_group,
-                "participant_ids": conversation.participant_ids,
-                "created_by": conversation.created_by,
-                "created_at": conversation.created_at.isoformat()
-            }
-        }
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail="Server xử lý lỗi. Vui lòng thử lại.")
-
-@app.get("/api/chat/conversations")
-async def get_user_conversations(
-    current_user: UserWithWallet = Depends(get_current_user)
-):
-    """Get all conversations for current user - Optimized with caching"""
-    try:
-        conversations = await chat_manager.get_user_conversations(current_user.id)
-        
-        return {
-            "success": True,
-            "conversations": conversations,
-            "total": len(conversations)
-        }
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail="Server xử lý lỗi. Vui lòng thử lại.")
-
-@app.get("/api/chat/conversations/{conversation_id}/messages")
-async def get_conversation_messages(
-    conversation_id: str,
-    limit: int = Query(50, ge=1, le=100, description="Number of messages to fetch"),
-    offset: int = Query(0, ge=0, description="Offset for pagination"),
-    current_user: UserWithWallet = Depends(get_current_user)
-):
-    """Get messages for a conversation - Optimized with pagination"""
-    try:
-        messages = await chat_manager.get_conversation_messages(
-            conversation_id=conversation_id,
-            user_id=current_user.id,
-            limit=limit,
-            offset=offset
-        )
-        
-        return {
-            "success": True,
-            "messages": messages,
-            "total": len(messages),
-            "limit": limit,
-            "offset": offset,
-            "has_more": len(messages) == limit  # Indicate if there are more messages
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail="Server xử lý lỗi. Vui lòng thử lại.")
-
-@app.post("/api/chat/conversations/{conversation_id}/messages")
-async def send_message_http(
-    conversation_id: str,
-    request: SendMessageRequest,
-    current_user: UserWithWallet = Depends(get_current_user)
-):
-    """Send a message via HTTP (fallback for WebSocket) - Production ready"""
-    try:
-        message = ChatMessage(
-            conversation_id=conversation_id,
-            sender_id=current_user.id,
-            content=request.content,
-            message_type=request.message_type,
-            metadata=request.metadata
-        )
-        
-        sent_message = await chat_manager.send_message(message)
-        
-        return {
-            "success": True,
-            "message": {
-                "id": sent_message.id,
-                "conversation_id": sent_message.conversation_id,
-                "sender_id": sent_message.sender_id,
-                "content": sent_message.content,
-                "message_type": sent_message.message_type,
-                "metadata": sent_message.metadata,
-                "created_at": sent_message.created_at.isoformat()
-            }
-        }
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail="Server xử lý lỗi. Vui lòng thử lại.")
-
-@app.get("/api/chat/conversations/{conversation_id}/participants")
-async def get_conversation_participants(
-    conversation_id: str,
-    current_user: UserWithWallet = Depends(get_current_user)
-):
-    """Get participants in a conversation"""
-    try:
-        # Use service key to bypass RLS restrictions
-        supabase = get_supabase_client(use_service_key=True)
-        
-        # Verify user is participant
-        participant_check = supabase.table("participants")\
-            .select("id")\
-            .eq("conversation_id", conversation_id)\
-            .eq("user_id", current_user.id)\
-            .execute()
-        
-        if not participant_check.data:
-            raise HTTPException(status_code=403, detail="Not authorized to view this conversation")
-        
-        # Get all participants with user info
-        participants_result = supabase.table("participants")\
-            .select("""
-                user_id, is_admin, joined_at,
-                users!participants_user_id_fkey(full_name, email, avatar_url)
-            """)\
-            .eq("conversation_id", conversation_id)\
-            .eq("is_active", True)\
-            .execute()
-        
-        participants = []
-        for p in participants_result.data:
-            user_info = p.get("users", {})
-            participants.append({
-                "user_id": p["user_id"],
-                "is_admin": p["is_admin"],
-                "joined_at": p["joined_at"],
-                "name": user_info.get("full_name") or user_info.get("email", "Unknown"),
-                "avatar_url": user_info.get("avatar_url")
-            })
-        
-        return {
-            "success": True,
-            "participants": participants,
-            "total": len(participants)
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail="Server xử lý lỗi. Vui lòng thử lại.")
-
-@app.post("/api/chat/conversations/{conversation_id}/read")
-async def mark_messages_as_read(
-    conversation_id: str,
-    request: MarkMessagesAsReadRequest,
-    current_user: UserWithWallet = Depends(get_current_user)
-):
-    """Mark messages as read in a conversation"""
-    try:
-        # Use service key to bypass RLS restrictions
-        supabase = get_supabase_client(use_service_key=True)
-        
-        # Verify user is participant
-        participant_check = supabase.table("participants")\
-            .select("id")\
-            .eq("conversation_id", conversation_id)\
-            .eq("user_id", current_user.id)\
-            .execute()
-        
-        if not participant_check.data:
-            raise HTTPException(status_code=403, detail="Not authorized")
-        
-        # Get messages to mark as read
-        query = supabase.table("messages")\
-            .select("id")\
-            .eq("conversation_id", conversation_id)\
-            .neq("sender_id", current_user.id)  # Don't mark own messages
-        
-        if request.message_id:
-            # Mark up to specific message
-            query = query.lte("created_at", 
-                supabase.table("messages")
-                .select("created_at")
-                .eq("id", request.message_id)
-                .execute().data[0]["created_at"]
-            )
-        
-        messages = query.execute().data
-        
-        # Create read receipts
-        read_receipts = []
-        for msg in messages:
-            read_receipts.append({
-                "message_id": msg["id"],
-                "user_id": current_user.id,
-                "read_at": datetime.now().isoformat()
-            })
-        
-        if read_receipts:
-            supabase.table("message_read_receipts")\
-                .upsert(read_receipts, on_conflict="message_id,user_id")\
-                .execute()
-        
-        return {
-            "success": True,
-            "marked_as_read": len(read_receipts)
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail="Server xử lý lỗi. Vui lòng thử lại.")
-
 # ================================
 # ENHANCED FINANCIAL ANALYSIS API ROUTES
 # ================================
@@ -1743,8 +1084,26 @@ async def get_technical_signals(
     current_user: Optional[UserWithWallet] = Depends(get_optional_user),
     request: Request = None
 ):
-    """Phát hiện tín hiệu kỹ thuật (với Redis cache)"""
+    """Phát hiện tín hiệu kỹ thuật với Redis cache"""
     try:
+        # Create cache key for technical signals
+        cache_key = f"technical_signals:{request_data.symbol.upper()}:{request_data.asset_type}"
+        
+        try:
+            # Try to get cached signals from Redis
+            redis_manager = get_redis_manager()
+            cached_signals = await redis_manager.get_json(cache_key)
+            
+            if cached_signals:
+                logger.info(f"Returning cached technical signals for {request_data.symbol}")
+                cached_signals['from_cache'] = True
+                cached_signals['cached_at'] = cached_signals.get('generated_at', datetime.now().isoformat())
+                cached_signals['generated_at'] = datetime.now().isoformat()
+                return cached_signals
+                
+        except Exception as cache_err:
+            logger.warning(f"Cache error for technical signals: {cache_err}")
+        
         # Load and analyze data using cached function
         df = load_stock_data_cached(request_data.symbol, request_data.asset_type)
         
@@ -1765,13 +1124,24 @@ async def get_technical_signals(
                 if isinstance(value, pd.DataFrame):
                     signals[key] = clean_dataframe_for_json(value)
         
-        return {
+        result = {
             'success': True,
             'signals': signals,
             'symbol': request_data.symbol,
             'generated_at': datetime.now().isoformat(),
-            'authenticated': current_user is not None
+            'authenticated': current_user is not None,
+            'from_cache': False
         }
+        
+        # Cache the results for 6 hours
+        try:
+            redis_manager = get_redis_manager()
+            await redis_manager.set_json(cache_key, result, expire=21600)  # 6 hours
+            logger.info(f"Cached technical signals for {request_data.symbol}")
+        except Exception as cache_err:
+            logger.warning(f"Failed to cache technical signals: {cache_err}")
+        
+        return result
     except Exception as e:
         raise HTTPException(status_code=500, detail="Server xử lý lỗi. Vui lòng thử lại.")
 
@@ -1814,20 +1184,76 @@ async def get_news(
     current_user: Optional[UserWithWallet] = Depends(get_optional_user),
     request: Request = None
 ):
-    """Lấy tin tức về cổ phiếu từ nhiều nguồn với streaming response"""
+    """Lấy tin tức về cổ phiếu từ nhiều nguồn với streaming response và Redis cache"""
     
     # Check if client wants streaming response (default: true)
     use_streaming = request.headers.get("Accept", "").find("text/event-stream") != -1 or \
                    request.query_params.get("stream", "true").lower() == "true"
     
     if use_streaming:
-        # Return streaming response
+        # Return streaming response with cache
         async def generate_news():
             try:
                 # Validate inputs
                 if not request_data.symbol:
                     yield f"data: {{\"type\": \"error\", \"message\": \"Mã tài sản là bắt buộc\"}}\n\n"
                     return
+                
+                # Create cache key for news
+                cache_key = f"news:{request_data.symbol.upper()}:{request_data.asset_type}:{request_data.look_back_days}:{request_data.pages}:{request_data.max_results}"
+                
+                try:
+                    # Try to get cached news from Redis
+                    redis_manager = get_redis_manager()
+                    cached_news = await redis_manager.get_json(cache_key)
+                    
+                    if cached_news and cached_news.get('data'):
+                        # Send cached news data
+                        import json
+                        metadata = {
+                            'symbol': request_data.symbol.upper(),
+                            'generated_at': datetime.now().isoformat(),
+                            'look_back_days': request_data.look_back_days,
+                            'pages': request_data.pages,
+                            'max_results': request_data.max_results,
+                            'news_sources': request_data.news_sources,
+                            'authenticated': current_user is not None,
+                            'from_cache': True
+                        }
+                        
+                        # Send metadata first
+                        yield f"data: {json.dumps({'type': 'metadata', 'data': metadata})}\n\n"
+                        yield f"data: {json.dumps({'type': 'status', 'message': 'Đang tải tin tức từ cache...', 'progress': 10})}\n\n"
+                        yield f"data: {json.dumps({'type': 'section_start', 'section': 'news_collection', 'title': f'Thu Thập Tin Tức - {request_data.symbol.upper()}'})}\n\n"
+                        
+                        # Stream cached news results
+                        news_data = cached_news['data']
+                        yield f"data: {json.dumps({'type': 'status', 'message': 'Đang chuẩn bị kết quả từ cache...', 'progress': 90})}\n\n"
+                        yield f"data: {json.dumps({'type': 'section_start', 'section': 'news_results', 'title': f'Kết Quả Tin Tức - {len(news_data)} bài viết'})}\n\n"
+                        
+                        # Stream each news item
+                        for i, news_item in enumerate(news_data):
+                            news_text = f"📰 **{news_item.get('title', 'Không có tiêu đề')}**\\n\\n"
+                            news_text += f"📅 {news_item.get('date', 'Không có ngày')} | 🏢 {news_item.get('source', 'Không rõ nguồn')}\\n\\n"
+                            news_text += f"{news_item.get('snippet', 'Không có mô tả')}\\n\\n"
+                            if news_item.get('link'):
+                                news_text += f"🔗 [Đọc thêm]({news_item['link']})\\n\\n"
+                            news_text += "---\\n\\n"
+                            
+                            yield f"data: {json.dumps({'type': 'content', 'section': 'news_results', 'text': news_text})}\n\n"
+                            
+                            # Add delay between items
+                            import asyncio
+                            await asyncio.sleep(0.1)
+                        
+                        yield f"data: {json.dumps({'type': 'section_end', 'section': 'news_results'})}\n\n"
+                        yield f"data: {json.dumps({'type': 'final_data', 'data': cached_news})}\n\n"
+                        yield f"data: {json.dumps({'type': 'complete', 'message': f'Hoàn tất! Tìm thấy {len(news_data)} tin tức về {request_data.symbol.upper()} từ cache', 'progress': 100})}\n\n"
+                        return
+                        
+                except Exception as cache_err:
+                    logger.warning(f"Cache error for news: {cache_err}")
+                    yield f"data: {{\"type\": \"status\", \"message\": \"Cache không khả dụng, đang tìm kiếm tin tức mới...\", \"progress\": 5}}\n\n"
                 
                 # Import streaming function
                 try:
@@ -1837,7 +1263,7 @@ async def get_news(
                     yield f"data: {{\"type\": \"error\", \"message\": \"News analysis module not available\"}}\n\n"
                     return
                 
-                # Initialize metadata at the start
+                # Initialize metadata for new fetch
                 import json
                 metadata = {
                     'symbol': request_data.symbol.upper(),
@@ -1846,13 +1272,17 @@ async def get_news(
                     'pages': request_data.pages,
                     'max_results': request_data.max_results,
                     'news_sources': request_data.news_sources,
-                    'authenticated': current_user is not None
+                    'authenticated': current_user is not None,
+                    'from_cache': False
                 }
                 
                 # Send metadata first
                 yield f"data: {json.dumps({'type': 'metadata', 'data': metadata})}\n\n"
                 
-                # Generate streaming news
+                # Variables to collect final data for caching
+                final_news_data = None
+                
+                # Generate streaming news and collect final data
                 for chunk in fetch_news_streaming(
                     symbol=request_data.symbol.upper(),
                     asset_type=request_data.asset_type,
@@ -1862,9 +1292,28 @@ async def get_news(
                     news_sources=request_data.news_sources
                 ):
                     yield chunk
+                    
+                    # Parse chunk to get final data for caching
+                    try:
+                        if chunk.startswith("data: "):
+                            chunk_data = json.loads(chunk[6:].strip())
+                            if chunk_data.get('type') == 'final_data':
+                                final_news_data = chunk_data.get('data')
+                    except:
+                        pass
+                    
                     # Add small delay to make streaming more visible
                     import asyncio
                     await asyncio.sleep(0.01)
+                
+                # Cache the results for 6 hours
+                if final_news_data:
+                    try:
+                        redis_manager = get_redis_manager()
+                        await redis_manager.set_json(cache_key, final_news_data, expire=21600)  # 6 hours
+                        logger.info(f"Cached news for {request_data.symbol}")
+                    except Exception as cache_err:
+                        logger.warning(f"Failed to cache news: {cache_err}")
                     
             except Exception as e:
                 logger.error(f"Error in streaming news: {e}")
@@ -2091,50 +1540,7 @@ async def calculate_manual_portfolio_api(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail="Server xử lý lỗi. Vui lòng thử lại.")
-
-@app.post("/api/insights")
-@check_balance_and_track("ai_insights")
-async def get_insights_api(
-    request_data: InsightsRequest,
-    current_user: Optional[UserWithWallet] = Depends(get_optional_user),
-    request: Request = None
-):
-    """Lấy phân tích AI từ dữ liệu kỹ thuật và tin tức (Legacy - non-streaming)"""
-    try:
-        # Set default dates if not provided
-        start_date = request_data.start_date or (datetime.now() - timedelta(days=365)).strftime('%Y-%m-%d')
-        end_date = request_data.end_date or datetime.now().strftime('%Y-%m-%d')
-        
-        # Get AI insights
-        response_ta, response_news, response_combined = get_insights(
-            ticker=request_data.ticker,
-            asset_type=request_data.asset_type,
-            start_date=start_date,
-            end_date=end_date,
-            look_back_days=request_data.look_back_days
-        )
-        
-        # Extract text content from the responses
-        technical_analysis = response_ta.text if hasattr(response_ta, 'text') else str(response_ta)
-        news_analysis = response_news.text if hasattr(response_news, 'text') else str(response_news)
-        combined_analysis = response_combined.text if hasattr(response_combined, 'text') else str(response_combined)
-        
-        return {
-            'success': True,
-            'ticker': request_data.ticker,
-            'technical_analysis': technical_analysis,
-            'news_analysis': news_analysis,
-            'combined_analysis': combined_analysis,
-            'metadata': {
-                'generated_at': datetime.now().isoformat(),
-                'date_range': {'start': start_date, 'end': end_date},
-                'look_back_days': request_data.look_back_days,
-                'authenticated': current_user is not None
-            }
-        }
-    except Exception:
-        raise HTTPException(status_code=500, detail="Server xử lý lỗi. Vui lòng thử lại.")
-
+    
 @app.post("/api/insights/stream")
 @check_balance_and_track_streaming("ai_insights")
 async def get_insights_stream_api(
@@ -2142,7 +1548,7 @@ async def get_insights_stream_api(
     current_user: Optional[UserWithWallet] = Depends(get_optional_user),
     request: Request = None
 ):
-    """Lấy phân tích AI với streaming response (Server-Sent Events)"""
+    """Lấy phân tích AI với streaming response (Server-Sent Events) với Redis cache"""
     
     # Set default dates if not provided
     start_date = request_data.start_date or (datetime.now() - timedelta(days=365)).strftime('%Y-%m-%d')
@@ -2163,7 +1569,68 @@ async def get_insights_stream_api(
             # Send metadata first
             yield f"data: {json.dumps({'type': 'metadata', 'data': metadata})}\n\n"
             
-            # Generate streaming insights
+            # Create cache key for insights
+            cache_key = f"insights:{request_data.ticker.upper()}:{start_date}:{end_date}:{request_data.look_back_days}"
+            
+            try:
+                # Try to get cached data from Redis
+                redis_manager = get_redis_manager()
+                cached_insights = await redis_manager.get_json(cache_key)
+                
+                if cached_insights:
+                    # Send cached data with streaming format
+                    yield f"data: {json.dumps({'type': 'status', 'message': 'Đang tải dữ liệu từ cache...', 'progress': 10})}\n\n"
+                    
+                    # Stream cached sections
+                    sections = [
+                        ('technical_analysis', 'Phân Tích Kỹ Thuật', cached_insights.get('technical_content', '')),
+                        ('news_analysis', 'Phân Tích Tin Tức', cached_insights.get('news_content', '')),
+                        ('proprietary_trading_analysis', 'Phân Tích Giao Dịch Tự Doanh', cached_insights.get('proprietary_content', '')),
+                        ('foreign_trading_analysis', 'Phân Tích Giao Dịch Khối Ngoại', cached_insights.get('foreign_content', '')),
+                        ('shareholder_trading_analysis', 'Phân Tích Giao Dịch Cổ Đông Nội Bộ', cached_insights.get('shareholder_content', '')),
+                        ('combined_analysis', 'Phân Tích Tổng Hợp & Khuyến Nghị', cached_insights.get('combined_content', ''))
+                    ]
+                    
+                    progress = 20
+                    for section_id, section_title, content in sections:
+                        if content:
+                            yield f"data: {json.dumps({'type': 'status', 'message': f'Đang hiển thị {section_title}...', 'progress': progress})}\n\n"
+                            yield f"data: {json.dumps({'type': 'section_start', 'section': section_id, 'title': section_title})}\n\n"
+                            
+                            # Stream content in chunks
+                            words = content.split()
+                            chunk_size = 20
+                            for i in range(0, len(words), chunk_size):
+                                chunk_text = ' '.join(words[i:i+chunk_size])
+                                yield f"data: {json.dumps({'type': 'content', 'section': section_id, 'text': chunk_text})}\n\n"
+                                import asyncio
+                                await asyncio.sleep(0.1)
+                            
+                            yield f"data: {json.dumps({'type': 'section_end', 'section': section_id})}\n\n"
+                            progress += 12
+                    
+                    yield f"data: {json.dumps({'type': 'complete', 'message': 'Phân tích hoàn tất từ cache!', 'progress': 100})}\n\n"
+                    return
+                    
+            except Exception as cache_err:
+                logger.warning(f"Cache error for insights: {cache_err}")
+                yield f"data: {json.dumps({'type': 'status', 'message': 'Cache không khả dụng, đang phân tích mới...', 'progress': 5})}\n\n"
+            
+            # No cache found, generate new insights
+            from news_analysis import get_insights_streaming
+            
+            # Store content for caching
+            insights_cache = {
+                'technical_content': '',
+                'news_content': '',
+                'proprietary_content': '',
+                'foreign_content': '',
+                'shareholder_content': '',
+                'combined_content': ''
+            }
+            current_section = None
+            
+            # Generate streaming insights and collect content for cache
             for chunk in get_insights_streaming(
                 ticker=request_data.ticker,
                 asset_type=request_data.asset_type,
@@ -2172,9 +1639,34 @@ async def get_insights_stream_api(
                 look_back_days=request_data.look_back_days
             ):
                 yield chunk
+                
+                # Parse chunk to collect content for caching
+                try:
+                    if chunk.startswith("data: "):
+                        chunk_data = json.loads(chunk[6:].strip())
+                        
+                        if chunk_data.get('type') == 'section_start':
+                            current_section = chunk_data.get('section')
+                        elif chunk_data.get('type') == 'content' and current_section:
+                            section_key = f"{current_section.replace('_analysis', '')}_content"
+                            if section_key in insights_cache:
+                                insights_cache[section_key] += chunk_data.get('text', '') + ' '
+                        elif chunk_data.get('type') == 'section_end':
+                            current_section = None
+                except:
+                    pass
+                
                 # Add small delay to make streaming more visible
                 import asyncio
-                await asyncio.sleep(0.01)
+                await asyncio.sleep(0.05)
+            
+            # Cache the results for 6 hours
+            try:
+                redis_manager = get_redis_manager()
+                await redis_manager.set_json(cache_key, insights_cache, expire=21600)  # 6 hours
+                logger.info(f"Cached insights for {request_data.ticker}")
+            except Exception as cache_err:
+                logger.warning(f"Failed to cache insights: {cache_err}")
                 
         except Exception:
             yield f"data: {{\"type\": \"error\", \"message\": \"Server xử lý lỗi. Vui lòng thử lại.\"}}\n\n"
@@ -2190,50 +1682,56 @@ async def get_insights_stream_api(
         }
     )
 
-# @app.post("/api/stock_analysis")
-# @track_service("stock_analysis")
-# async def stock_analysis_api(
-#     request_data: StockAnalysisRequest,
-#     current_user: Optional[UserWithWallet] = Depends(get_optional_user),
-#     request: Request = None
-# ):
-#     """Phân tích và dự báo cổ phiếu bằng Prophet"""
-#     try:
-#         # Log request details
-#         # logger.info(f"Stock analysis request: symbol={request_data.symbol}, start_date={request_data.start_date}, forecast_periods={request_data.forecast_periods}")
+@app.post("/api/intraday_match_analysis")
+@check_balance_and_track_streaming("intraday_match_analysis")
+async def get_intraday_match_analysis_api(
+    symbol: str = Query(..., description="Mã cổ phiếu"),
+    date: str = Query(..., description="Ngày phân tích (YYYY-MM-DD hoặc YYYYMMDD)"),
+    current_user: Optional[UserWithWallet] = Depends(get_optional_user),
+    request: Request = None
+):
+    """Phân tích khớp lệnh trong phiên với streaming response"""
+    
+    try:
+        from news_analysis import get_intraday_match_analysis_streaming
         
-#         # Validate inputs
-#         if not request_data.symbol:
-#             # logger.warning("Empty symbol provided")
-#             raise HTTPException(status_code=400, detail="Vui lòng nhập mã cổ phiếu")
+        async def generate_analysis():
+            try:
+                # Send metadata first
+                import json
+                metadata = {
+                    'symbol': symbol.upper(),
+                    'date': date,
+                    'generated_at': datetime.now().isoformat(),
+                    'authenticated': current_user is not None
+                }
+                yield f"data: {json.dumps({'type': 'metadata', 'data': metadata})}\n\n"
+                
+                # Generate streaming analysis
+                for chunk in get_intraday_match_analysis_streaming(symbol=symbol, date=date):
+                    yield chunk
+                    # Add small delay to make streaming more visible
+                    import asyncio
+                    await asyncio.sleep(0.05)
+                    
+            except Exception as e:
+                logger.error(f"Error in intraday analysis streaming: {e}")
+                yield f"data: {json.dumps({'type': 'error', 'message': f'Lỗi phân tích: {str(e)}'})}\n\n"
         
-#         # Clean symbol
-#         symbol = request_data.symbol.upper().strip()
-#         # logger.info(f"Analyzing stock: {symbol}")
+        return StreamingResponse(
+            generate_analysis(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Headers": "*"
+            }
+        )
         
-#         # Perform stock analysis (matching the function signature)
-#         result = analyze_stock(symbol, request_data.start_date, request_data.forecast_periods)
-        
-#         # Add metadata to result
-#         if result.get('success'):
-#             result['metadata'] = {
-#                 'analysis_date': datetime.now().isoformat(),
-#                 'model_type': 'Prophet',
-#                 'forecast_periods': request_data.forecast_periods,
-#                 'authenticated': current_user is not None
-#             }
-#             # logger.info(f"Stock analysis successful for {symbol}")
-#         else:
-#             logger.warning(f"Stock analysis failed for {symbol}: {result.get('error', 'Unknown error')}")
-        
-#         return result
-        
-#     except HTTPException as e:
-#         logger.error(f"HTTP Exception in stock analysis: {e.detail}")
-#         raise
-#     except Exception as e:
-#         logger.error(f"Unexpected error in stock analysis: {str(e)}")
-#         raise HTTPException(status_code=500, detail=f"Lỗi khi phân tích cổ phiếu: {str(e)}")
+    except Exception as e:
+        logger.error(f"Error in intraday match analysis API: {e}")
+        raise HTTPException(status_code=500, detail=f"Lỗi phân tích khớp lệnh: {str(e)}")
 
 # ================================
 # HEALTH CHECK AND INFO ROUTES
@@ -2389,7 +1887,6 @@ async def get_system_status():
             "database": db_status,
             "redis": redis_status,
             "cache": cache_status,
-            "chat_system": "active" if chat_manager else "inactive",
             "performance": performance_monitor.get_stats(),
             "timestamp": datetime.now().isoformat()
         }
@@ -2504,17 +2001,3 @@ if __name__ == '__main__':
         access_log=True,
         log_level="info"
     )
-
-
-
-
-
-
-
-
-
-
-
-
-
-

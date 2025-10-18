@@ -435,12 +435,7 @@ if __name__ == "__main__":
     # Test with cached data loading
     # print("Testing cached data loading...")
     # print(load_stock_data_cached("VCB", "stock"))
-    # Test the new VNQuant-first function
-    print("Testing VNQuant-first loading...")
-    print(load_stock_data_vnquant("VCB"))
-    
-    # print("Testing original YF loading...")
-    print(load_stock_data_yf("VCB"))
+    print(load_stock_data_yf("TON11419", "crypto"))
     # print(load_stock_data_vn("VCB", "2011-01-01"))
     # print(load_financials_yf("VCB")[0][f'{datetime.datetime.now().year - 1}-12-31'])
     # print(crawl_news_cafef("VCB"))

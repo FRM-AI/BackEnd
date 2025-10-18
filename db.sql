@@ -18,51 +18,6 @@ CREATE TABLE users (
 );
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
 
--- USER PROFILES
-CREATE TABLE user_profiles (
-    user_id uuid PRIMARY KEY REFERENCES users(id),
-    bio text,
-    profile_picture_url text,
-    followers_count int DEFAULT 0,
-    following_count int DEFAULT 0,
-    created_at timestamptz DEFAULT now(),
-    updated_at timestamptz DEFAULT now()
-);
-ALTER TABLE user_profiles ENABLE ROW LEVEL SECURITY;
-
--- FOLLOWS
-CREATE TABLE follows (
-    follower_id uuid REFERENCES users(id) ON DELETE CASCADE,
-    following_id uuid REFERENCES users(id) ON DELETE CASCADE,
-    followed_at timestamptz DEFAULT now(),
-    PRIMARY KEY (follower_id, following_id)
-);
-ALTER TABLE follows ENABLE ROW LEVEL SECURITY;
-
--- POSTS
-CREATE TABLE posts (
-    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id uuid REFERENCES users(id) ON DELETE CASCADE,
-    title text NOT NULL,
-    content jsonb DEFAULT '[]',
-    tags jsonb DEFAULT '[]',
-    likes_count int DEFAULT 0,
-    comments_count int DEFAULT 0,
-    created_at timestamptz DEFAULT now(),
-    updated_at timestamptz DEFAULT now()
-);
-ALTER TABLE posts ENABLE ROW LEVEL SECURITY;
-
--- COMMENTS
-CREATE TABLE comments (
-    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    post_id uuid REFERENCES posts(id) ON DELETE CASCADE,
-    user_id uuid REFERENCES users(id) ON DELETE CASCADE,
-    content text NOT NULL,
-    created_at timestamptz DEFAULT now()
-);
-ALTER TABLE comments ENABLE ROW LEVEL SECURITY;
-
 -- ROLES
 CREATE TABLE roles (
     id serial PRIMARY KEY,
