@@ -417,6 +417,7 @@ POST /api/stock_data
 ```json
 {
   "symbol": "VCB",
+  "asset_type": "stock",
   "start_date": "2024-01-01",
   "end_date": "2024-12-31"
 }
@@ -440,9 +441,16 @@ POST /api/stock_data
   ],
   "columns": ["date", "open", "high", "low", "close", "volume", "sma_20", "rsi"],
   "symbol": "VCB",
-  "authenticated": true
+  "authenticated": true,
+  "from_cache": false,
+  "cache_ttl": 1800
 }
 ```
+
+**Features:**
+- Sử dụng Redis cache với TTL 30 phút
+- Nếu có cache, trả về ngay với `from_cache: true`
+- Cache key: `stock_data:{symbol}:{asset_type}:{start_date}:{end_date}`
 
 #### 2. Phát hiện tín hiệu kỹ thuật
 ```http
@@ -452,7 +460,8 @@ POST /api/technical_signals
 **Request Body:**
 ```json
 {
-  "symbol": "VCB"
+  "symbol": "VCB",
+  "asset_type": "stock"
 }
 ```
 
@@ -467,9 +476,16 @@ POST /api/technical_signals
     "signal_strength": "STRONG_BUY"
   },
   "symbol": "VCB",
-  "generated_at": "2024-01-01T00:00:00Z"
+  "generated_at": "2024-01-01T00:00:00Z",
+  "from_cache": false,
+  "cache_ttl": 3600
 }
 ```
+
+**Features:**
+- Sử dụng Redis cache với TTL 1 giờ
+- Nếu có cache, trả về ngay với `from_cache: true`
+- Cache key: `technical_signals:{symbol}:{asset_type}`
 
 #### 3. Tính điểm cơ bản
 ```http
@@ -504,15 +520,20 @@ POST /api/fundamental_score
 }
 ```
 
-#### 4. Lấy tin tức cổ phiếu
+#### 4. Lấy tin tức cổ phiếu (Streaming)
 ```http
 POST /api/news
 ```
+
+**Headers:**
+- `Accept: text/event-stream` (để nhận streaming response, mặc định)
+- Session cookie (automatic)
 
 **Request Body:**
 ```json
 {
   "symbol": "VCB",
+  "asset_type": "stock",
   "pages": 2,
   "look_back_days": 30,
   "news_sources": ["google"],
@@ -520,7 +541,16 @@ POST /api/news
 }
 ```
 
-**Response:**
+**Response (Streaming - Default):**
+```
+data: {"type": "status", "message": "Đang tìm kiếm tin tức...", "progress": 10}
+
+data: {"type": "news_item", "data": {"title": "VCB công bố kết quả Q4", "snippet": "...", "source": "Google News"}}
+
+data: {"type": "complete", "total_articles": 25}
+```
+
+**Response (Non-Streaming):**
 ```json
 {
   "status": "success",
@@ -536,6 +566,8 @@ POST /api/news
     }
   ],
   "symbol": "VCB",
+  "from_cache": false,
+  "cache_ttl": 3600,
   "metadata": {
     "symbol_type": "vietnamese",
     "search_parameters": {
@@ -558,6 +590,13 @@ POST /api/news
   "authenticated": true
 }
 ```
+
+**Features:**
+- Mặc định trả về streaming response
+- Sử dụng Redis cache với TTL 1 giờ
+- Cache key: `news:{symbol}:{asset_type}:{look_back_days}`
+- Nếu có cache, trả về ngay với `from_cache: true`
+- Hỗ trợ cả streaming và non-streaming response
 
 #### 5. Tối ưu hóa danh mục đầu tư
 ```http
@@ -621,42 +660,91 @@ POST /api/calculate_manual_portfolio
 }
 ```
 
-#### 7. Lấy insights AI
+#### 7. Lấy insights AI (Streaming)
 ```http
-POST /api/insights
+POST /api/insights/stream
 ```
+
+**Headers:**
+- `Accept: text/event-stream` (để nhận streaming response)
+- Session cookie (automatic)
 
 **Request Body:**
 ```json
 {
   "ticker": "VCB",
+  "asset_type": "stock",
   "start_date": "2024-01-01",
   "end_date": "2024-12-31",
   "look_back_days": 30
 }
 ```
 
-**Response:**
-```json
-{
-  "success": true,
-  "ticker": "VCB",
-  "technical_analysis": "Cổ phiếu VCB đang trong xu hướng tăng...",
-  "news_analysis": "Tin tức gần đây tích cực...",
-  "combined_analysis": "Kết hợp phân tích kỹ thuật và tin tức...",
-  "metadata": {
-    "generated_at": "2024-01-01T00:00:00Z",
-    "date_range": {
-      "start": "2024-01-01",
-      "end": "2024-12-31"
-    },
-    "look_back_days": 30,
-    "authenticated": true
-  }
-}
+**Response (Server-Sent Events):**
+```
+data: {"type": "status", "message": "Đang tải dữ liệu chứng khoán...", "progress": 10}
+
+data: {"type": "section_start", "section": "technical_analysis", "title": "Phân Tích Kỹ Thuật"}
+
+data: {"type": "content", "section": "technical_analysis", "content": "Cổ phiếu VCB đang trong xu hướng tăng..."}
+
+data: {"type": "section_end", "section": "technical_analysis"}
+
+data: {"type": "section_start", "section": "news_analysis", "title": "Phân Tích Tin Tức"}
+
+data: {"type": "content", "section": "news_analysis", "content": "Tin tức gần đây tích cực..."}
+
+data: {"type": "section_end", "section": "news_analysis"}
+
+data: {"type": "complete", "message": "Phân tích hoàn tất"}
 ```
 
-#### 8. Gửi cảnh báo
+**Features:**
+- Sử dụng Redis cache với TTL 6 giờ
+- Nếu có cache, trả về ngay lập tức
+- Nếu không có cache, phân tích real-time và lưu cache
+- Cache các phần: technical_content, news_content, shareholder_content, foreign_content, proprietary_content, combined_content
+
+#### 8. Phân tích khớp lệnh trong phiên (Streaming)
+```http
+POST /api/intraday_match_analysis
+```
+
+**Headers:**
+- `Accept: text/event-stream` (để nhận streaming response)
+- Session cookie (automatic)
+
+**Query Parameters:**
+- `symbol` (string, required): Mã cổ phiếu
+- `date` (string, required): Ngày phân tích (YYYY-MM-DD hoặc YYYYMMDD)
+
+**Example:**
+```http
+POST /api/intraday_match_analysis?symbol=VCB&date=2024-01-15
+```
+
+**Response (Server-Sent Events):**
+```
+data: {"type": "status", "message": "Đang tạo phân tích khớp lệnh trong phiên..", "progress": 0}
+
+data: {"type": "section_start", "section": "intraday_analysis", "title": "Phân Tích Khớp Lệnh Trong Phiên"}
+
+data: {"type": "status", "message": "Đang tải dữ liệu khớp lệnh trong phiên...", "progress": 10}
+
+data: {"type": "content", "section": "intraday_analysis", "content": "Phân tích chi tiết về giá khớp lệnh..."}
+
+data: {"type": "section_end", "section": "intraday_analysis"}
+
+data: {"type": "complete", "message": "Phân tích khớp lệnh hoàn tất"}
+```
+
+**Features:**
+- Phân tích dữ liệu khớp lệnh theo thời gian thực
+- Đánh giá lực cầu/cung trong phiên
+- Phân tích xu hướng giá và thanh khoản
+- Đưa ra nhận định xu hướng ngắn hạn
+
+#### 9. Gửi cảnh báo
 ```http
 POST /api/send_alert
 ```
@@ -856,15 +944,57 @@ GET /api
   "name": "FRM-AI Financial Risk Management API",
   "version": "3.0.0",
   "framework": "FastAPI + Supabase",
-  "description": "Hệ thống quản lý rủi ro tài chính với AI và Blockchain",
-  "features": [...],
-  "endpoints": {...},
+  "description": "Hệ thống quản lý rủi ro tài chính với AI",
+  "features": [
+    "Stock Analysis with AI",
+    "Portfolio Optimization", 
+    "News Analysis",
+    "Technical Analysis",
+    "Real-time Streaming",
+    "Redis Caching"
+  ],
+  "endpoints": {
+    "financial_analysis": [
+      "/api/stock_data",
+      "/api/technical_signals", 
+      "/api/news",
+      "/api/insights/stream",
+      "/api/intraday_match_analysis"
+    ],
+    "user_management": [
+      "/api/auth/*",
+      "/api/wallet/*", 
+      "/api/packages/*"
+    ]
+  },
   "docs": "/docs",
   "redoc": "/redoc"
 }
 ```
 
-#### 3. System metrics
+#### 3. System health check
+```http
+GET /api/system/health
+```
+
+**Response:**
+```json
+{
+  "status": "healthy",
+  "timestamp": "2024-01-01T00:00:00Z",
+  "version": "3.0.0",
+  "environment": "production",
+  "database": "connected",
+  "redis": "connected",
+  "services": {
+    "supabase": "healthy",
+    "redis_cache": "healthy",
+    "performance_monitor": "active"
+  }
+}
+```
+
+#### 4. System metrics
 ```http
 GET /api/system/metrics
 ```
@@ -877,12 +1007,17 @@ GET /api/system/metrics
     "uptime": 86400,
     "total_requests": 1000,
     "average_response_time": 0.25,
-    "requests_per_minute": 10.5
+    "requests_per_minute": 10.5,
+    "performance_stats": {
+      "slow_requests": 5,
+      "cache_hit_rate": 0.85,
+      "memory_usage": "45%"
+    }
   }
 }
 ```
 
-#### 4. System status
+#### 5. System status
 ```http
 GET /api/system/status
 ```
@@ -893,9 +1028,123 @@ GET /api/system/status
   "success": true,
   "status": {
     "database": "connected",
-    "chat_system": "active",
-    "performance": {...},
+    "redis": "connected", 
+    "performance": {
+      "uptime": 86400,
+      "total_requests": 1000,
+      "average_response_time": 0.25
+    },
+    "services": {
+      "auth_manager": "active",
+      "wallet_manager": "active", 
+      "cache_manager": "active",
+      "notification_manager": "active"
+    },
     "timestamp": "2024-01-01T00:00:00Z"
+  }
+}
+```
+
+---
+
+## 💾 Cache Management
+
+### Cache Endpoints
+
+#### 1. Lấy trạng thái cache
+```http
+GET /api/cache/status
+```
+
+**Response:**
+```json
+{
+  "status": "active",
+  "redis_connected": true,
+  "total_keys": 1250,
+  "memory_usage": "45MB",
+  "hit_rate": 0.85,
+  "cache_types": {
+    "stock_data": 450,
+    "technical_signals": 320,
+    "news_analysis": 280, 
+    "ai_insights": 200
+  }
+}
+```
+
+#### 2. Làm mới cache
+```http
+POST /api/cache/refresh
+```
+
+**Headers:** Session cookie (automatic) - Admin required
+
+**Response:**
+```json
+{
+  "message": "Cache refresh initiated",
+  "refreshed_keys": 1250,
+  "timestamp": "2024-01-01T00:00:00Z"
+}
+```
+
+#### 3. Xóa cache
+```http
+DELETE /api/cache/clear
+```
+
+**Headers:** Session cookie (automatic) - Admin required
+
+**Response:**
+```json
+{
+  "message": "Cache cleared successfully",
+  "cleared_keys": 1250
+}
+```
+
+#### 4. Lấy danh sách symbols trong cache
+```http
+GET /api/cache/symbols
+```
+
+**Response:**
+```json
+{
+  "cached_symbols": ["VCB", "BID", "CTG", "TCB", "MBB"],
+  "total_symbols": 5,
+  "cache_types": {
+    "stock_data": ["VCB", "BID"],
+    "technical_signals": ["VCB", "CTG"], 
+    "news_analysis": ["VCB", "BID", "TCB"]
+  }
+}
+```
+
+#### 5. Kiểm tra cache cho symbol cụ thể
+```http
+GET /api/cache/symbol/{symbol}
+```
+
+**Response:**
+```json
+{
+  "symbol": "VCB",
+  "cached_data": {
+    "stock_data": {
+      "exists": true,
+      "ttl": 1200,
+      "last_updated": "2024-01-01T10:00:00Z"
+    },
+    "technical_signals": {
+      "exists": true, 
+      "ttl": 2400,
+      "last_updated": "2024-01-01T09:30:00Z"
+    },
+    "news_analysis": {
+      "exists": false
+    }
   }
 }
 ```
@@ -941,8 +1190,13 @@ DELETE /api/user/delete-account
 ### Common Response Headers
 - `X-Process-Time` - Request processing time
 - `X-Request-Count` - Total request count
-- `X-API-Version` - API version
+- `X-API-Version` - API version (3.0.0)
 - `Cache-Control` - Caching policy
+- `X-Content-Type-Options` - Security header
+- `X-Frame-Options` - Security header
+- `X-XSS-Protection` - Security header
+- `Strict-Transport-Security` - Security header
+- `Referrer-Policy` - Security header
 
 ---
 
@@ -951,6 +1205,17 @@ DELETE /api/user/delete-account
 ### Rate Limiting
 - Không có rate limiting cụ thể được implement
 - Khuyến nghị implement rate limiting trong production
+- Performance monitoring được áp dụng để theo dõi request times
+- Requests > 2 giây được log như slow requests
+
+### Caching Strategy
+- **Redis Cache** được sử dụng cho các API chính:
+  - Stock data: 30 phút TTL
+  - Technical signals: 1 giờ TTL
+  - News analysis: 1 giờ TTL
+  - AI insights: 6 giờ TTL (full analysis với multiple phases)
+- Cache keys có format: `service_type:symbol:parameters_hash`
+- Streaming APIs kiểm tra cache trước khi thực hiện phân tích mới
 
 ### Pagination
 - Hầu hết endpoints hỗ trợ `limit` và `offset`
@@ -960,6 +1225,11 @@ DELETE /api/user/delete-account
 ### Service Tracking
 - Các API financial analysis được track sử dụng dịch vụ
 - Cần có gói dịch vụ hoặc coins để sử dụng
+- Các API có Redis cache để tăng hiệu suất:
+  - `/api/stock_data`
+  - `/api/technical_signals` 
+  - `/api/news`
+  - `/api/insights/stream`
 
 ### Authentication Levels
 1. **Public**: Không cần authentication
