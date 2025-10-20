@@ -171,6 +171,26 @@ def get_company_profile(symbol, type_id, page_index, page_size):
     }
     return get_data(url, params)
 
+# API 12: Lấy dữ liệu tài chính
+
+def get_finance_data(symbol):
+    url = "https://cafef.vn/du-lieu/Ajax/PageNew/FinanceData/fi.ashx"
+    params = {"symbol": symbol}
+    return get_data(url, params)
+
+# API 13: Lấy chỉ số thế giới
+
+def get_global_indices():
+    url = "https://cafef.vn/du-lieu/ajax/mobile/smart/ajaxchisothegioi.ashx"
+    response = get_data(url)
+    try:
+        # Parse response to JSON if it's a string
+        data = response if isinstance(response, dict) else json.loads(response)
+        return data["Data"]
+    except json.JSONDecodeError as e:
+        print(f"Lỗi khi phân tích cú pháp JSON: {e}")
+        return None
+
 if __name__ == "__main__":
     # Test API 1: Lấy dữ liệu giao dịch cổ đông
     # print("Testing get_shareholder_data...")
@@ -186,7 +206,7 @@ if __name__ == "__main__":
 
     # # Test API 4: Lấy dữ liệu giao dịch tự doanh
     # print("Testing get_proprietary_trading_data...")
-    print(pd.DataFrame(get_proprietary_trading_data("VIC", None, None, 1, 14)["ListDataTudoanh"]))
+    # print(pd.DataFrame(get_proprietary_trading_data("VIC", None, None, 1, 14)["ListDataTudoanh"]))
 
     # # Test API 5: Lấy giá khớp lệnh theo ngày
     # print("Testing get_match_price...")
@@ -216,3 +236,11 @@ if __name__ == "__main__":
     # # Test API 11: Lấy hồ sơ công ty
     # print("Testing get_company_profile...")
     # print(get_company_profile("VIC", 1, 0, 4))
+
+    # Test API 12: Lấy dữ liệu tài chính
+    # print("Testing get_finance_data...")
+    # print(get_finance_data("VIC"))
+
+    # Test API 13: Lấy chỉ số thế giới
+    print("Testing get_global_indices...")
+    print(get_global_indices())

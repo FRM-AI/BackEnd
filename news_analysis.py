@@ -174,6 +174,7 @@ def get_intraday_match_analysis_streaming(symbol: str, date: str):
         # Bước 1: Lấy dữ liệu khớp lệnh
         yield f"data: {json.dumps({'type': 'status', 'message': 'Đang tải dữ liệu khớp lệnh trong phiên...', 'progress': 10})}\n\n"
         GiaKhopLenh = pd.DataFrame(get_match_price(symbol=symbol, date=date)['data'])
+        aggregates = pd.DataFrame(get_match_price(symbol=symbol, date=date)['aggregates'])
 
         # Lấy các điểm dữ liệu cách nhau 100 điểm
         GiaKhopLenh_reduced = GiaKhopLenh.iloc[::100].reset_index(drop=True)
@@ -189,10 +190,22 @@ def get_intraday_match_analysis_streaming(symbol: str, date: str):
             "volume": "Khối lượng khớp lệnh (cổ phiếu)"
         }
 
+        schema_aggregates = {
+            "price": "Giá khớp lệnh (nghìn đồng)",
+            "totalVolume": "Tổng khối lượng khớp lệnh (cổ phiếu)",
+            "volPercent": "Tỷ lệ khối lượng khớp lệnh tại giá này so với tổng khối lượng khớp lệnh (%)"
+        }
+
         data_json = GiaKhopLenh_reduced.to_json(orient="records", force_ascii=False)
         GiaKhopLenh_pretty = json.dumps({
             "schema": schema,
             "records": json.loads(data_json)
+        }, indent=2, ensure_ascii=False)
+
+        data_aggregates_json = aggregates.to_json(orient="records", force_ascii=False)
+        aggregates_pretty = json.dumps({
+            "schema": schema_aggregates,
+            "records": json.loads(data_aggregates_json)
         }, indent=2, ensure_ascii=False)
 
         yield f"data: {json.dumps({'type': 'status', 'message': 'Dữ liệu khớp lệnh đã sẵn sàng...', 'progress': 30})}\n\n"
@@ -205,6 +218,9 @@ def get_intraday_match_analysis_streaming(symbol: str, date: str):
 
         Dữ liệu:
         {GiaKhopLenh_pretty}
+
+        Tổng hợp:
+        {aggregates_pretty}
 
         Yêu cầu:
         - Trả lời cực kì KHÁCH QUAN mang tính chuyên môn cao.

@@ -703,6 +703,13 @@ data: {"type": "complete", "message": "Phân tích hoàn tất"}
 - Sử dụng Redis cache với TTL 6 giờ
 - Nếu có cache, trả về ngay lập tức
 - Nếu không có cache, phân tích real-time và lưu cache
+- **Phân tích 6 phần chính:**
+  1. **Technical Analysis** - Phân tích kỹ thuật dựa trên các chỉ báo và tín hiệu
+  2. **News Analysis** - Phân tích tin tức và sentiment thị trường
+  3. **Proprietary Trading Analysis** - Phân tích giao dịch tự doanh
+  4. **Foreign Trading Analysis** - Phân tích giao dịch khối ngoại
+  5. **Shareholder Trading Analysis** - Phân tích giao dịch cổ đông nội bộ
+  6. **Combined Analysis** - Phân tích tổng hợp và đưa ra khuyến nghị
 - Cache các phần: technical_content, news_content, shareholder_content, foreign_content, proprietary_content, combined_content
 
 #### 8. Phân tích khớp lệnh trong phiên (Streaming)
@@ -1197,6 +1204,326 @@ DELETE /api/user/delete-account
 - `X-XSS-Protection` - Security header
 - `Strict-Transport-Security` - Security header
 - `Referrer-Policy` - Security header
+
+---
+
+## 🆓 CafeF Free Data APIs
+
+Các API miễn phí từ CafeF để lấy dữ liệu thị trường chứng khoán Việt Nam. **Không cần authentication và không tính phí sử dụng.**
+
+### Financial Data Endpoints
+
+#### 1. Lấy dữ liệu giao dịch cổ đông
+```http
+POST /api/cafef/shareholder-data
+```
+
+**Request Body:**
+```json
+{
+  "symbol": "VCB",
+  "start_date": "2024-01-01",
+  "end_date": "2024-12-31",
+  "page_index": 1,
+  "page_size": 14
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "symbol": "VCB",
+  "data": [
+    {
+      "Stock": "VCB",
+      "TransactionMan": "Nguyễn Văn A",
+      "TransactionManPosition": "Chủ tịch HĐQT",
+      "VolumeBeforeTransaction": 1000000,
+      "PlanBuyVolume": 50000,
+      "PlanSellVolume": 0,
+      "RealBuyVolume": 50000,
+      "RealSellVolume": 0,
+      "VolumeAfterTransaction": 1050000,
+      "TyLeSoHuu": 2.5
+    }
+  ],
+  "page_index": 1,
+  "page_size": 14
+}
+```
+
+#### 2. Lấy lịch sử giá cổ phiếu
+```http
+POST /api/cafef/price-history
+```
+
+**Request Body:**
+```json
+{
+  "symbol": "VCB",
+  "start_date": "2024-01-01",
+  "end_date": "2024-12-31",
+  "page_index": 1,
+  "page_size": 14
+}
+```
+
+#### 3. Lấy dữ liệu giao dịch khối ngoại
+```http
+POST /api/cafef/foreign-trading
+```
+
+**Request Body:**
+```json
+{
+  "symbol": "VCB",
+  "start_date": "2024-01-01",
+  "end_date": "2024-12-31",
+  "page_index": 1,
+  "page_size": 14
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "symbol": "VCB",
+  "data": [
+    {
+      "Ngay": "2024-01-15",
+      "KLGDRong": 125000,
+      "GTDGRong": 12.5,
+      "ThayDoi": 1.2,
+      "KLMua": 200000,
+      "GtMua": 20.0,
+      "KLBan": 75000,
+      "GtBan": 7.5,
+      "RoomConLai": 15.5,
+      "DangSoHuu": 4.5
+    }
+  ]
+}
+```
+
+#### 4. Lấy dữ liệu giao dịch tự doanh
+```http
+POST /api/cafef/proprietary-trading
+```
+
+**Request Body:**
+```json
+{
+  "symbol": "VCB",
+  "start_date": "2024-01-01",
+  "end_date": "2024-12-31", 
+  "page_index": 1,
+  "page_size": 14
+}
+```
+
+#### 5. Lấy giá khớp lệnh theo ngày
+```http
+POST /api/cafef/match-price
+```
+
+**Request Body:**
+```json
+{
+  "symbol": "VCB",
+  "date": "2024-01-15"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "symbol": "VCB",
+  "date": "2024-01-15",
+  "data": {
+    "match_data": [
+      {
+        "time": "09:00:00",
+        "price": 95500,
+        "volume": 1250,
+        "change": 500
+      }
+    ]
+  }
+}
+```
+
+#### 6. Lấy giá realtime
+```http
+GET /api/cafef/realtime-price/{symbol}
+```
+
+**Example:**
+```http
+GET /api/cafef/realtime-price/VCB
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "symbol": "VCB",
+  "data": {
+    "price": 95500,
+    "change": 500,
+    "change_percent": 0.53,
+    "volume": 1250000,
+    "timestamp": "2024-01-15T14:30:00Z"
+  }
+}
+```
+
+### Company Information Endpoints
+
+**Note:** Các API 7-11 trả về file .aspx với content type `text/html` và header `Content-Disposition: attachment`.
+
+#### 7. Lấy thông tin công ty
+```http
+GET /api/cafef/company-info/{symbol}
+```
+
+**Response:** File .aspx với thông tin công ty (HTML content)
+
+**Headers:**
+```
+Content-Type: text/html
+Content-Disposition: attachment; filename=VCB_company_info.aspx
+```
+
+#### 8. Lấy danh sách ban lãnh đạo
+```http
+GET /api/cafef/leadership/{symbol}
+```
+
+**Response:** File .aspx với danh sách ban lãnh đạo (HTML content)
+
+**Headers:**
+```
+Content-Type: text/html
+Content-Disposition: attachment; filename=VCB_leadership.aspx
+```
+
+#### 9. Lấy danh sách công ty con
+```http
+GET /api/cafef/subsidiaries/{symbol}
+```
+
+**Response:** File .aspx với danh sách công ty con (HTML content)
+
+**Headers:**
+```
+Content-Type: text/html
+Content-Disposition: attachment; filename=VCB_subsidiaries.aspx
+```
+
+#### 10. Lấy báo cáo tài chính
+```http
+GET /api/cafef/financial-reports/{symbol}
+```
+
+**Response:** File .aspx với báo cáo tài chính (HTML content)
+
+**Headers:**
+```
+Content-Type: text/html
+Content-Disposition: attachment; filename=VCB_financial_reports.aspx
+```
+
+#### 11. Lấy hồ sơ công ty
+```http
+POST /api/cafef/company-profile
+```
+
+**Request Body:**
+```json
+{
+  "symbol": "VCB",
+  "type_id": 1,
+  "page_index": 0,
+  "page_size": 4
+}
+```
+
+**Response:** File .aspx với hồ sơ công ty (HTML content)
+
+**Headers:**
+```
+Content-Type: text/html
+Content-Disposition: attachment; filename=VCB_company_profile.aspx
+```
+
+### Additional Data Endpoints
+
+#### 12. Lấy dữ liệu tài chính
+```http
+GET /api/cafef/finance-data/{symbol}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "symbol": "VCB",
+  "data": {
+        {
+        "Symbol": "VIC",
+        "Year": 2024,
+        "EPS": 3.04,
+        "BV": 35.93,
+        "PE": 13.49,
+        "ROA": 1.42,
+        "ROE": 7.74,
+        "ROS": 6.29,
+        "GOS": 14.44,
+        "DAR": 81.61,
+        "IsCurrent": false,
+        "LastUpdate": "\/Date(1744170898268)\/"
+    }, {
+        "Year": 2023,
+        "Symbol": "VIC",
+        "EPS": 0.56,
+        "BV": 29.75,
+        "PE": 79.64,
+        "ROA": 0.32,
+        "ROE": 1.46,
+        "ROS": 1.34,
+        "GOS": 14.56,
+        "DAR": 77.8,
+        "IsCurrent": false,
+        "LastUpdate": "\/Date(1712023636848)\/"
+    }
+  }
+}
+```
+
+#### 13. Lấy chỉ số thế giới
+```http
+GET /api/cafef/global-indices
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": [
+    [{"id":"51","index":"SSE Composite Index","last":3865.26,"high":3876.24,"low":3850.37,"change":-10.91,"changePercent":-0.28,"lastUpdate":"2025-10-20 00:00:00","district":1},{"id":"31","index":"SZSE Component B","last":8895.67,"high":8933.77,"low":8887.98,"change":-31.18,"changePercent":-0.35,"lastUpdate":"2025-10-20 00:00:00","district":1},{"id":"29","index":"FTSE MIB Index","last":42443.69,"high":42496.1,"low":42095.11,"change":321.23,"changePercent":0.76,"lastUpdate":"2025-10-20 00:00:00","district":2},{"id":"22","index":"PSI","last":8325.18,"high":8350.58,"low":8268.21,"change":49.55,"changePercent":0.6,"lastUpdate":"2025-10-20 00:00:00","district":2},{"id":"52","index":"VinFast Auto Ltd.","last":3.27,"high":3.29,"low":3.26,"change":0,"changePercent":0.11,"lastUpdate":"2025-10-20 00:00:00","district":3}]
+  ]
+}
+```
+
+**Features của CafeF APIs:**
+- **Miễn phí hoàn toàn** - Không cần authentication
+- **Không tính phí** - Không trừ coins hoặc credits
+- **Dữ liệu thời gian thực** - Cập nhật liên tục từ CafeF
+- **Đa dạng dữ liệu** - Từ giá cổ phiếu đến thông tin công ty
+- **Format linh hoạt** - JSON và file .aspx tùy loại dữ liệu
 
 ---
 

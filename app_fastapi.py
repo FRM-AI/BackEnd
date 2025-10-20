@@ -114,6 +114,12 @@ from fundamental_scoring_vn import score_stock, rank_stocks
 from portfolio_optimization import optimize_portfolio, calculate_manual_portfolio
 from alert import send_alert
 from news_analysis import get_insights_streaming
+from fetch_cafef import (
+    get_shareholder_data, get_price_history, get_foreign_trading_data,
+    get_proprietary_trading_data, get_match_price, get_realtime_price,
+    get_company_info, get_leadership, get_subsidiaries, get_financial_reports,
+    get_company_profile, get_finance_data, get_global_indices
+)
 # from stock_analysis import analyze_stock
 
 # Additional Pydantic Models for new features
@@ -192,6 +198,45 @@ class MarkMessagesAsReadRequest(BaseModel):
     message_id: Optional[str] = Field(None, description="Mark up to this message as read")
     start_date: str = Field(default="2011-01-01", description="Ngày bắt đầu (YYYY-MM-DD)")
     forecast_periods: int = Field(default=30, ge=1, le=365, description="Số ngày dự báo")
+
+# Pydantic Models for CafeF APIs
+class ShareholderDataRequest(BaseModel):
+    symbol: str = Field(..., description="Mã cổ phiếu")
+    start_date: Optional[str] = Field(None, description="Ngày bắt đầu (YYYY-MM-DD)")
+    end_date: Optional[str] = Field(None, description="Ngày kết thúc (YYYY-MM-DD)")
+    page_index: int = Field(default=1, ge=1, description="Chỉ số trang")
+    page_size: int = Field(default=14, ge=1, le=100, description="Kích thước trang")
+
+class PriceHistoryRequest(BaseModel):
+    symbol: str = Field(..., description="Mã cổ phiếu")
+    start_date: Optional[str] = Field(None, description="Ngày bắt đầu (YYYY-MM-DD)")
+    end_date: Optional[str] = Field(None, description="Ngày kết thúc (YYYY-MM-DD)")
+    page_index: int = Field(default=1, ge=1, description="Chỉ số trang")
+    page_size: int = Field(default=14, ge=1, le=100, description="Kích thước trang")
+
+class ForeignTradingRequest(BaseModel):
+    symbol: str = Field(..., description="Mã cổ phiếu")
+    start_date: Optional[str] = Field(None, description="Ngày bắt đầu (YYYY-MM-DD)")
+    end_date: Optional[str] = Field(None, description="Ngày kết thúc (YYYY-MM-DD)")
+    page_index: int = Field(default=1, ge=1, description="Chỉ số trang")
+    page_size: int = Field(default=14, ge=1, le=100, description="Kích thước trang")
+
+class ProprietaryTradingRequest(BaseModel):
+    symbol: str = Field(..., description="Mã cổ phiếu")
+    start_date: Optional[str] = Field(None, description="Ngày bắt đầu (YYYY-MM-DD)")
+    end_date: Optional[str] = Field(None, description="Ngày kết thúc (YYYY-MM-DD)")
+    page_index: int = Field(default=1, ge=1, description="Chỉ số trang")
+    page_size: int = Field(default=14, ge=1, le=100, description="Kích thước trang")
+
+class MatchPriceRequest(BaseModel):
+    symbol: str = Field(..., description="Mã cổ phiếu")
+    date: str = Field(..., description="Ngày giao dịch (YYYY-MM-DD hoặc YYYYMMDD)")
+
+class CompanyProfileRequest(BaseModel):
+    symbol: str = Field(..., description="Mã cổ phiếu")
+    type_id: int = Field(default=1, description="Loại hồ sơ công ty")
+    page_index: int = Field(default=0, ge=0, description="Chỉ số trang")
+    page_size: int = Field(default=4, ge=1, le=100, description="Kích thước trang")
 
 # Utility Functions (enhanced with better error handling)
 def clean_dataframe_for_json(df):
@@ -1991,6 +2036,258 @@ async def check_symbol_cache(symbol: str):
             "success": False,
             "error": str(e)
         }
+
+# ==================== CAFEF FREE APIs ====================
+
+@app.post("/api/cafef/shareholder-data")
+async def api_get_shareholder_data(request: ShareholderDataRequest):
+    """Lấy dữ liệu giao dịch cổ đông (Free API - không cần check balance)"""
+    try:
+        data = get_shareholder_data(
+            symbol=request.symbol.upper(),
+            start_date=request.start_date,
+            end_date=request.end_date,
+            page_index=request.page_index,
+            page_size=request.page_size
+        )
+        
+        return {
+            "success": True,
+            "symbol": request.symbol.upper(),
+            "data": data,
+            "page_index": request.page_index,
+            "page_size": request.page_size
+        }
+    except Exception as e:
+        logger.error(f"Error getting shareholder data: {e}")
+        raise HTTPException(status_code=500, detail=f"Lỗi khi lấy dữ liệu giao dịch cổ đông: {str(e)}")
+
+@app.post("/api/cafef/price-history")
+async def api_get_price_history(request: PriceHistoryRequest):
+    """Lấy lịch sử giá cổ phiếu (Free API - không cần check balance)"""
+    try:
+        data = get_price_history(
+            symbol=request.symbol.upper(),
+            start_date=request.start_date,
+            end_date=request.end_date,
+            page_index=request.page_index,
+            page_size=request.page_size
+        )
+        
+        return {
+            "success": True,
+            "symbol": request.symbol.upper(),
+            "data": data,
+            "page_index": request.page_index,
+            "page_size": request.page_size
+        }
+    except Exception as e:
+        logger.error(f"Error getting price history: {e}")
+        raise HTTPException(status_code=500, detail=f"Lỗi khi lấy lịch sử giá: {str(e)}")
+
+@app.post("/api/cafef/foreign-trading")
+async def api_get_foreign_trading_data(request: ForeignTradingRequest):
+    """Lấy dữ liệu giao dịch khối ngoại (Free API - không cần check balance)"""
+    try:
+        data = get_foreign_trading_data(
+            symbol=request.symbol.upper(),
+            start_date=request.start_date,
+            end_date=request.end_date,
+            page_index=request.page_index,
+            page_size=request.page_size
+        )
+        
+        return {
+            "success": True,
+            "symbol": request.symbol.upper(),
+            "data": data,
+            "page_index": request.page_index,
+            "page_size": request.page_size
+        }
+    except Exception as e:
+        logger.error(f"Error getting foreign trading data: {e}")
+        raise HTTPException(status_code=500, detail=f"Lỗi khi lấy dữ liệu giao dịch khối ngoại: {str(e)}")
+
+@app.post("/api/cafef/proprietary-trading")
+async def api_get_proprietary_trading_data(request: ProprietaryTradingRequest):
+    """Lấy dữ liệu giao dịch tự doanh (Free API - không cần check balance)"""
+    try:
+        data = get_proprietary_trading_data(
+            symbol=request.symbol.upper(),
+            start_date=request.start_date,
+            end_date=request.end_date,
+            page_index=request.page_index,
+            page_size=request.page_size
+        )
+        
+        return {
+            "success": True,
+            "symbol": request.symbol.upper(),
+            "data": data,
+            "page_index": request.page_index,
+            "page_size": request.page_size
+        }
+    except Exception as e:
+        logger.error(f"Error getting proprietary trading data: {e}")
+        raise HTTPException(status_code=500, detail=f"Lỗi khi lấy dữ liệu giao dịch tự doanh: {str(e)}")
+
+@app.post("/api/cafef/match-price")
+async def api_get_match_price(request: MatchPriceRequest):
+    """Lấy giá khớp lệnh theo ngày (Free API - không cần check balance)"""
+    try:
+        data = get_match_price(
+            symbol=request.symbol.upper(),
+            date=request.date
+        )
+        
+        return {
+            "success": True,
+            "symbol": request.symbol.upper(),
+            "date": request.date,
+            "data": data
+        }
+    except Exception as e:
+        logger.error(f"Error getting match price: {e}")
+        raise HTTPException(status_code=500, detail=f"Lỗi khi lấy giá khớp lệnh: {str(e)}")
+
+@app.get("/api/cafef/realtime-price/{symbol}")
+async def api_get_realtime_price(symbol: str):
+    """Lấy giá realtime (Free API - không cần check balance)"""
+    try:
+        data = get_realtime_price(symbol.upper())
+        
+        return {
+            "success": True,
+            "symbol": symbol.upper(),
+            "data": data
+        }
+    except Exception as e:
+        logger.error(f"Error getting realtime price: {e}")
+        raise HTTPException(status_code=500, detail=f"Lỗi khi lấy giá realtime: {str(e)}")
+
+@app.get("/api/cafef/company-info/{symbol}")
+async def api_get_company_info(symbol: str):
+    """Lấy thông tin công ty (Free API - trả về file .aspx)"""
+    try:
+        data = get_company_info(symbol.upper())
+        
+        # Trả về raw content cho file .aspx
+        return Response(
+            content=data,
+            media_type="text/html",
+            headers={
+                "Content-Disposition": f"attachment; filename={symbol.upper()}_company_info.aspx"
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error getting company info: {e}")
+        raise HTTPException(status_code=500, detail=f"Lỗi khi lấy thông tin công ty: {str(e)}")
+
+@app.get("/api/cafef/leadership/{symbol}")
+async def api_get_leadership(symbol: str):
+    """Lấy danh sách ban lãnh đạo (Free API - trả về file .aspx)"""
+    try:
+        data = get_leadership(symbol.upper())
+        
+        # Trả về raw content cho file .aspx
+        return Response(
+            content=data,
+            media_type="text/html",
+            headers={
+                "Content-Disposition": f"attachment; filename={symbol.upper()}_leadership.aspx"
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error getting leadership data: {e}")
+        raise HTTPException(status_code=500, detail=f"Lỗi khi lấy danh sách ban lãnh đạo: {str(e)}")
+
+@app.get("/api/cafef/subsidiaries/{symbol}")
+async def api_get_subsidiaries(symbol: str):
+    """Lấy danh sách công ty con (Free API - trả về file .aspx)"""
+    try:
+        data = get_subsidiaries(symbol.upper())
+        
+        # Trả về raw content cho file .aspx
+        return Response(
+            content=data,
+            media_type="text/html",
+            headers={
+                "Content-Disposition": f"attachment; filename={symbol.upper()}_subsidiaries.aspx"
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error getting subsidiaries data: {e}")
+        raise HTTPException(status_code=500, detail=f"Lỗi khi lấy danh sách công ty con: {str(e)}")
+
+@app.get("/api/cafef/financial-reports/{symbol}")
+async def api_get_financial_reports(symbol: str):
+    """Lấy báo cáo tài chính (Free API - trả về file .aspx)"""
+    try:
+        data = get_financial_reports(symbol.upper())
+        
+        # Trả về raw content cho file .aspx
+        return Response(
+            content=data,
+            media_type="text/html",
+            headers={
+                "Content-Disposition": f"attachment; filename={symbol.upper()}_financial_reports.aspx"
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error getting financial reports: {e}")
+        raise HTTPException(status_code=500, detail=f"Lỗi khi lấy báo cáo tài chính: {str(e)}")
+
+@app.post("/api/cafef/company-profile")
+async def api_get_company_profile(request: CompanyProfileRequest):
+    """Lấy hồ sơ công ty (Free API - trả về file .aspx)"""
+    try:
+        data = get_company_profile(
+            symbol=request.symbol.upper(),
+            type_id=request.type_id,
+            page_index=request.page_index,
+            page_size=request.page_size
+        )
+        
+        # Trả về raw content cho file .aspx
+        return Response(
+            content=data,
+            media_type="text/html",
+            headers={
+                "Content-Disposition": f"attachment; filename={request.symbol.upper()}_company_profile.aspx"
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error getting company profile: {e}")
+        raise HTTPException(status_code=500, detail=f"Lỗi khi lấy hồ sơ công ty: {str(e)}")
+
+@app.get("/api/cafef/finance-data/{symbol}")
+async def api_get_finance_data(symbol: str):
+    """Lấy dữ liệu tài chính (Free API - không cần check balance)"""
+    try:
+        data = get_finance_data(symbol.upper())
+        
+        return {
+            "success": True,
+            "symbol": symbol.upper(),
+            "data": data
+        }
+    except Exception as e:
+        logger.error(f"Error getting finance data: {e}")
+        raise HTTPException(status_code=500, detail=f"Lỗi khi lấy dữ liệu tài chính: {str(e)}")
+
+@app.get("/api/cafef/global-indices")
+async def api_get_global_indices():
+    """Lấy chỉ số thế giới (Free API - không cần check balance)"""
+    try:
+        data = get_global_indices()
+        
+        return {
+            "success": True,
+            "data": data
+        }
+    except Exception as e:
+        logger.error(f"Error getting global indices: {e}")
+        raise HTTPException(status_code=500, detail=f"Lỗi khi lấy chỉ số thế giới: {str(e)}")
 
 if __name__ == '__main__':
     uvicorn.run(
