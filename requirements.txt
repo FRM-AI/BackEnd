@@ -53,5 +53,5 @@ aiofiles
 git+https://github.com/phamdinhkhanh/vnquant.git
 
 websocket-client
-
+aiohttp
 

@@ -660,9 +660,9 @@ POST /api/calculate_manual_portfolio
 }
 ```
 
-#### 7. Lấy insights AI (Streaming)
+#### 7. Phân tích kỹ thuật (Streaming)
 ```http
-POST /api/insights/stream
+POST /api/technical-analysis/stream
 ```
 
 **Headers:**
@@ -675,44 +675,177 @@ POST /api/insights/stream
   "ticker": "VCB",
   "asset_type": "stock",
   "start_date": "2024-01-01",
-  "end_date": "2024-12-31",
+  "end_date": "2024-12-31"
+}
+```
+
+**Response (Server-Sent Events):**
+```
+data: {"type": "metadata", "data": {"ticker": "VCB", "analysis_type": "technical_analysis"}}
+
+data: {"type": "status", "message": "Đang tải dữ liệu chứng khoán...", "progress": 10}
+
+data: {"type": "section_start", "section": "technical_analysis", "title": "Phân Tích Kỹ Thuật"}
+
+data: {"type": "content", "section": "technical_analysis", "text": "Cổ phiếu VCB đang trong xu hướng tăng..."}
+
+data: {"type": "section_end", "section": "technical_analysis"}
+
+data: {"type": "complete", "message": "Phân tích kỹ thuật hoàn tất!", "progress": 100}
+```
+
+**Features:**
+- Sử dụng Redis cache với TTL 6 giờ
+- Phân tích kỹ thuật dựa trên các chỉ báo và tín hiệu
+- Cache key: `technical_analysis:{ticker}:{start_date}:{end_date}`
+
+#### 8. Phân tích tin tức (Streaming)
+```http
+POST /api/news-analysis/stream
+```
+
+**Headers:**
+- `Accept: text/event-stream` (để nhận streaming response)
+- Session cookie (automatic)
+
+**Request Body:**
+```json
+{
+  "ticker": "VCB",
+  "asset_type": "stock",
   "look_back_days": 30
 }
 ```
 
 **Response (Server-Sent Events):**
 ```
-data: {"type": "status", "message": "Đang tải dữ liệu chứng khoán...", "progress": 10}
+data: {"type": "metadata", "data": {"ticker": "VCB", "analysis_type": "news_analysis"}}
 
-data: {"type": "section_start", "section": "technical_analysis", "title": "Phân Tích Kỹ Thuật"}
-
-data: {"type": "content", "section": "technical_analysis", "content": "Cổ phiếu VCB đang trong xu hướng tăng..."}
-
-data: {"type": "section_end", "section": "technical_analysis"}
+data: {"type": "status", "message": "Đang phân tích tin tức...", "progress": 30}
 
 data: {"type": "section_start", "section": "news_analysis", "title": "Phân Tích Tin Tức"}
 
-data: {"type": "content", "section": "news_analysis", "content": "Tin tức gần đây tích cực..."}
+data: {"type": "content", "section": "news_analysis", "text": "Tin tức gần đây tích cực..."}
 
 data: {"type": "section_end", "section": "news_analysis"}
 
-data: {"type": "complete", "message": "Phân tích hoàn tất"}
+data: {"type": "complete", "message": "Phân tích tin tức hoàn tất!", "progress": 100}
 ```
 
 **Features:**
-- Sử dụng Redis cache với TTL 6 giờ
-- Nếu có cache, trả về ngay lập tức
-- Nếu không có cache, phân tích real-time và lưu cache
-- **Phân tích 6 phần chính:**
-  1. **Technical Analysis** - Phân tích kỹ thuật dựa trên các chỉ báo và tín hiệu
-  2. **News Analysis** - Phân tích tin tức và sentiment thị trường
-  3. **Proprietary Trading Analysis** - Phân tích giao dịch tự doanh
-  4. **Foreign Trading Analysis** - Phân tích giao dịch khối ngoại
-  5. **Shareholder Trading Analysis** - Phân tích giao dịch cổ đông nội bộ
-  6. **Combined Analysis** - Phân tích tổng hợp và đưa ra khuyến nghị
-- Cache các phần: technical_content, news_content, shareholder_content, foreign_content, proprietary_content, combined_content
+- Sử dụng Redis cache với TTL 2 giờ (tin tức thay đổi thường xuyên)
+- Phân tích tin tức và sentiment thị trường
+- Cache key: `news_analysis:{ticker}:{look_back_days}`
 
-#### 8. Phân tích khớp lệnh trong phiên (Streaming)
+#### 9. Phân tích giao dịch tự doanh (Streaming)
+```http
+POST /api/proprietary-trading-analysis/stream
+```
+
+**Headers:**
+- `Accept: text/event-stream` (để nhận streaming response)
+- Session cookie (automatic)
+
+**Request Body:**
+```json
+{
+  "ticker": "VCB"
+}
+```
+
+**Response (Server-Sent Events):**
+```
+data: {"type": "metadata", "data": {"ticker": "VCB", "analysis_type": "proprietary_trading_analysis"}}
+
+data: {"type": "status", "message": "Đang phân tích giao dịch tự doanh...", "progress": 45}
+
+data: {"type": "section_start", "section": "proprietary_trading_analysis", "title": "Phân Tích Giao Dịch Tự Doanh"}
+
+data: {"type": "content", "section": "proprietary_trading_analysis", "text": "Khối tự doanh đang có xu hướng mua ròng..."}
+
+data: {"type": "section_end", "section": "proprietary_trading_analysis"}
+
+data: {"type": "complete", "message": "Phân tích giao dịch tự doanh hoàn tất!", "progress": 100}
+```
+
+**Features:**
+- Sử dụng Redis cache với TTL 4 giờ
+- Phân tích giao dịch tự doanh từ dữ liệu CafeF
+- Cache key: `proprietary_trading:{ticker}`
+
+#### 10. Phân tích giao dịch khối ngoại (Streaming)
+```http
+POST /api/foreign-trading-analysis/stream
+```
+
+**Headers:**
+- `Accept: text/event-stream` (để nhận streaming response)
+- Session cookie (automatic)
+
+**Request Body:**
+```json
+{
+  "ticker": "VCB"
+}
+```
+
+**Response (Server-Sent Events):**
+```
+data: {"type": "metadata", "data": {"ticker": "VCB", "analysis_type": "foreign_trading_analysis"}}
+
+data: {"type": "status", "message": "Đang phân tích giao dịch khối ngoại...", "progress": 60}
+
+data: {"type": "section_start", "section": "foreign_trading_analysis", "title": "Phân Tích Giao Dịch Khối Ngoại"}
+
+data: {"type": "content", "section": "foreign_trading_analysis", "text": "Khối ngoại đang có xu hướng bán ròng..."}
+
+data: {"type": "section_end", "section": "foreign_trading_analysis"}
+
+data: {"type": "complete", "message": "Phân tích giao dịch khối ngoại hoàn tất!", "progress": 100}
+```
+
+**Features:**
+- Sử dụng Redis cache với TTL 4 giờ
+- Phân tích giao dịch khối ngoại từ dữ liệu CafeF
+- Cache key: `foreign_trading:{ticker}`
+
+#### 11. Phân tích giao dịch cổ đông nội bộ (Streaming)
+```http
+POST /api/shareholder-trading-analysis/stream
+```
+
+**Headers:**
+- `Accept: text/event-stream` (để nhận streaming response)
+- Session cookie (automatic)
+
+**Request Body:**
+```json
+{
+  "ticker": "VCB"
+}
+```
+
+**Response (Server-Sent Events):**
+```
+data: {"type": "metadata", "data": {"ticker": "VCB", "analysis_type": "shareholder_trading_analysis"}}
+
+data: {"type": "status", "message": "Đang phân tích giao dịch cổ đông...", "progress": 75}
+
+data: {"type": "section_start", "section": "shareholder_trading_analysis", "title": "Phân Tích Giao Dịch Cổ Đông Nội Bộ"}
+
+data: {"type": "content", "section": "shareholder_trading_analysis", "text": "Các cổ đông nội bộ đang có kế hoạch mua thêm..."}
+
+data: {"type": "section_end", "section": "shareholder_trading_analysis"}
+
+data: {"type": "complete", "message": "Phân tích giao dịch cổ đông hoàn tất!", "progress": 100}
+```
+
+**Features:**
+- Sử dụng Redis cache với TTL 8 giờ
+- Phân tích giao dịch cổ đông nội bộ từ dữ liệu CafeF
+- Cache key: `shareholder_trading:{ticker}`
+
+#### 12. Phân tích khớp lệnh trong phiên (Streaming)
 ```http
 POST /api/intraday_match_analysis
 ```
@@ -732,24 +865,28 @@ POST /api/intraday_match_analysis?symbol=VCB&date=2024-01-15
 
 **Response (Server-Sent Events):**
 ```
+data: {"type": "metadata", "data": {"ticker": "VCB", "date": "2024-01-15"}}
+
 data: {"type": "status", "message": "Đang tạo phân tích khớp lệnh trong phiên..", "progress": 0}
 
 data: {"type": "section_start", "section": "intraday_analysis", "title": "Phân Tích Khớp Lệnh Trong Phiên"}
 
 data: {"type": "status", "message": "Đang tải dữ liệu khớp lệnh trong phiên...", "progress": 10}
 
-data: {"type": "content", "section": "intraday_analysis", "content": "Phân tích chi tiết về giá khớp lệnh..."}
+data: {"type": "content", "section": "intraday_analysis", "text": "Phân tích chi tiết về giá khớp lệnh..."}
 
 data: {"type": "section_end", "section": "intraday_analysis"}
 
-data: {"type": "complete", "message": "Phân tích khớp lệnh hoàn tất"}
+data: {"type": "complete", "message": "Phân tích khớp lệnh hoàn tất", "progress": 100}
 ```
 
 **Features:**
+- Sử dụng Redis cache với TTL 12 giờ
 - Phân tích dữ liệu khớp lệnh theo thời gian thực
 - Đánh giá lực cầu/cung trong phiên
 - Phân tích xu hướng giá và thanh khoản
 - Đưa ra nhận định xu hướng ngắn hạn
+- Cache key: `intraday_analysis:{ticker}:{date}`
 
 #### 9. Gửi cảnh báo
 ```http
@@ -965,7 +1102,11 @@ GET /api
       "/api/stock_data",
       "/api/technical_signals", 
       "/api/news",
-      "/api/insights/stream",
+      "/api/technical-analysis/stream",
+      "/api/news-analysis/stream",
+      "/api/proprietary-trading-analysis/stream",
+      "/api/foreign-trading-analysis/stream",
+      "/api/shareholder-trading-analysis/stream",
       "/api/intraday_match_analysis"
     ],
     "user_management": [
@@ -1556,7 +1697,12 @@ GET /api/cafef/global-indices
   - `/api/stock_data`
   - `/api/technical_signals` 
   - `/api/news`
-  - `/api/insights/stream`
+  - `/api/technical-analysis/stream` (6 giờ)
+  - `/api/news-analysis/stream` (2 giờ)
+  - `/api/proprietary-trading-analysis/stream` (4 giờ)
+  - `/api/foreign-trading-analysis/stream` (4 giờ)
+  - `/api/shareholder-trading-analysis/stream` (8 giờ)
+  - `/api/intraday_match_analysis` (12 giờ)
 
 ### Authentication Levels
 1. **Public**: Không cần authentication

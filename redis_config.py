@@ -226,6 +226,34 @@ class RedisManager:
                 
         except Exception as e:
             logger.error(f"Error cleaning up expired keys: {e}")
+    
+    # General cache methods for JSON data
+    async def set_json(self, key: str, data: Dict[str, Any], expire: int = 3600):
+        """Set JSON data in cache with expiration (async compatible)"""
+        if not self.is_connected():
+            return False
+        
+        try:
+            value = json.dumps(data, default=str)
+            self.client.setex(key, expire, value)
+            logger.debug(f"✅ Cached JSON data for key: {key}")
+            return True
+        except Exception as e:
+            logger.error(f"Error caching JSON data for {key}: {e}")
+            return False
+    
+    async def get_json(self, key: str) -> Optional[Dict[str, Any]]:
+        """Get JSON data from cache (async compatible)"""
+        if not self.is_connected():
+            return None
+        
+        try:
+            data = self.client.get(key)
+            if data:
+                return json.loads(data)
+        except Exception as e:
+            logger.error(f"Error getting JSON data for {key}: {e}")
+        return None
 
 # Global Redis manager instance
 redis_manager = RedisManager()

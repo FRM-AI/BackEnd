@@ -20,9 +20,10 @@ import json
 import os
 import sys
 import math
-import asyncio
 import logging
 import time
+
+import asyncio
 
 # Import custom modules
 import re
@@ -113,7 +114,15 @@ from technical_analysis import detect_signals
 from fundamental_scoring_vn import score_stock, rank_stocks
 from portfolio_optimization import optimize_portfolio, calculate_manual_portfolio
 from alert import send_alert
-from news_analysis import get_insights_streaming
+from news_analysis import (
+    get_insights_streaming, 
+    get_technical_analysis_streaming,
+    get_news_analysis_streaming, 
+    get_proprietary_trading_analysis_streaming,
+    get_intraday_match_analysis_streaming,
+    get_foreign_trading_analysis_streaming,
+    get_shareholder_trading_analysis_streaming
+)
 from fetch_cafef import (
     get_shareholder_data, get_price_history, get_foreign_trading_data,
     get_proprietary_trading_data, get_match_price, get_realtime_price,
@@ -1254,7 +1263,6 @@ async def get_news(
                     
                     if cached_news and cached_news.get('data'):
                         # Send cached news data
-                        import json
                         metadata = {
                             'symbol': request_data.symbol.upper(),
                             'generated_at': datetime.now().isoformat(),
@@ -1288,7 +1296,7 @@ async def get_news(
                             yield f"data: {json.dumps({'type': 'content', 'section': 'news_results', 'text': news_text})}\n\n"
                             
                             # Add delay between items
-                            import asyncio
+                            
                             await asyncio.sleep(0.1)
                         
                         yield f"data: {json.dumps({'type': 'section_end', 'section': 'news_results'})}\n\n"
@@ -1309,7 +1317,6 @@ async def get_news(
                     return
                 
                 # Initialize metadata for new fetch
-                import json
                 metadata = {
                     'symbol': request_data.symbol.upper(),
                     'generated_at': datetime.now().isoformat(),
@@ -1348,7 +1355,7 @@ async def get_news(
                         pass
                     
                     # Add small delay to make streaming more visible
-                    import asyncio
+                    
                     await asyncio.sleep(0.01)
                 
                 # Cache the results for 6 hours
@@ -1586,101 +1593,180 @@ async def calculate_manual_portfolio_api(
     except Exception as e:
         raise HTTPException(status_code=500, detail="Server xử lý lỗi. Vui lòng thử lại.")
     
-@app.post("/api/insights/stream")
-@check_balance_and_track_streaming("ai_insights")
-async def get_insights_stream_api(
+    
+@app.post("/api/technical-analysis/stream")
+@check_balance_and_track_streaming("technical_analysis")
+async def get_technical_analysis_stream_api(
     request_data: InsightsRequest,
     current_user: Optional[UserWithWallet] = Depends(get_optional_user),
     request: Request = None
 ):
-    """Lấy phân tích AI với streaming response (Server-Sent Events) với Redis cache"""
+    """Phân tích kỹ thuật với streaming response (Server-Sent Events) với Redis cache"""
     
     # Set default dates if not provided
     start_date = request_data.start_date or (datetime.now() - timedelta(days=365)).strftime('%Y-%m-%d')
     end_date = request_data.end_date or datetime.now().strftime('%Y-%m-%d')
     
-    async def generate_insights():
+    async def generate_analysis():
         try:
-            # Initialize metadata at the start
-            import json
+            # Initialize metadata at the start            
             metadata = {
                 'ticker': request_data.ticker,
                 'generated_at': datetime.now().isoformat(),
                 'date_range': {'start': start_date, 'end': end_date},
-                'look_back_days': request_data.look_back_days,
-                'authenticated': current_user is not None
+                'authenticated': current_user is not None,
+                'analysis_type': 'technical_analysis'
             }
             
             # Send metadata first
             yield f"data: {json.dumps({'type': 'metadata', 'data': metadata})}\n\n"
             
-            # Create cache key for insights
-            cache_key = f"insights:{request_data.ticker.upper()}:{start_date}:{end_date}:{request_data.look_back_days}"
+            # Create cache key for technical analysis
+            cache_key = f"technical_analysis:{request_data.ticker.upper()}:{start_date}:{end_date}"
             
             try:
                 # Try to get cached data from Redis
                 redis_manager = get_redis_manager()
-                cached_insights = await redis_manager.get_json(cache_key)
+                cached_analysis = await redis_manager.get_json(cache_key)
                 
-                if cached_insights:
+                if cached_analysis:
                     # Send cached data with streaming format
                     yield f"data: {json.dumps({'type': 'status', 'message': 'Đang tải dữ liệu từ cache...', 'progress': 10})}\n\n"
                     
-                    # Stream cached sections
-                    sections = [
-                        ('technical_analysis', 'Phân Tích Kỹ Thuật', cached_insights.get('technical_content', '')),
-                        ('news_analysis', 'Phân Tích Tin Tức', cached_insights.get('news_content', '')),
-                        ('proprietary_trading_analysis', 'Phân Tích Giao Dịch Tự Doanh', cached_insights.get('proprietary_content', '')),
-                        ('foreign_trading_analysis', 'Phân Tích Giao Dịch Khối Ngoại', cached_insights.get('foreign_content', '')),
-                        ('shareholder_trading_analysis', 'Phân Tích Giao Dịch Cổ Đông Nội Bộ', cached_insights.get('shareholder_content', '')),
-                        ('combined_analysis', 'Phân Tích Tổng Hợp & Khuyến Nghị', cached_insights.get('combined_content', ''))
-                    ]
+                    content = cached_analysis.get('content', '')
+                    if content:
+                        yield f"data: {json.dumps({'type': 'section_start', 'section': 'technical_analysis', 'title': 'Phân Tích Kỹ Thuật'})}\n\n"
+                        
+                        # Stream content in chunks
+                        words = content.split()
+                        chunk_size = 20
+                        for i in range(0, len(words), chunk_size):
+                            chunk_text = ' '.join(words[i:i+chunk_size])
+                            yield f"data: {json.dumps({'type': 'content', 'section': 'technical_analysis', 'text': chunk_text})}\n\n"
+                            await asyncio.sleep(0.1)
+                        
+                        yield f"data: {json.dumps({'type': 'section_end', 'section': 'technical_analysis'})}\n\n"
                     
-                    progress = 20
-                    for section_id, section_title, content in sections:
-                        if content:
-                            yield f"data: {json.dumps({'type': 'status', 'message': f'Đang hiển thị {section_title}...', 'progress': progress})}\n\n"
-                            yield f"data: {json.dumps({'type': 'section_start', 'section': section_id, 'title': section_title})}\n\n"
-                            
-                            # Stream content in chunks
-                            words = content.split()
-                            chunk_size = 20
-                            for i in range(0, len(words), chunk_size):
-                                chunk_text = ' '.join(words[i:i+chunk_size])
-                                yield f"data: {json.dumps({'type': 'content', 'section': section_id, 'text': chunk_text})}\n\n"
-                                import asyncio
-                                await asyncio.sleep(0.1)
-                            
-                            yield f"data: {json.dumps({'type': 'section_end', 'section': section_id})}\n\n"
-                            progress += 12
-                    
-                    yield f"data: {json.dumps({'type': 'complete', 'message': 'Phân tích hoàn tất từ cache!', 'progress': 100})}\n\n"
+                    yield f"data: {json.dumps({'type': 'complete', 'message': 'Phân tích kỹ thuật hoàn tất từ cache!', 'progress': 100})}\n\n"
                     return
                     
             except Exception as cache_err:
-                logger.warning(f"Cache error for insights: {cache_err}")
+                logger.warning(f"Cache error for technical analysis: {cache_err}")
                 yield f"data: {json.dumps({'type': 'status', 'message': 'Cache không khả dụng, đang phân tích mới...', 'progress': 5})}\n\n"
             
-            # No cache found, generate new insights
-            from news_analysis import get_insights_streaming
-            
+            # No cache found, generate new analysis
             # Store content for caching
-            insights_cache = {
-                'technical_content': '',
-                'news_content': '',
-                'proprietary_content': '',
-                'foreign_content': '',
-                'shareholder_content': '',
-                'combined_content': ''
-            }
-            current_section = None
+            analysis_content = ''
             
-            # Generate streaming insights and collect content for cache
-            for chunk in get_insights_streaming(
+            # Generate streaming analysis and collect content for cache
+            async for chunk in get_technical_analysis_streaming(
                 ticker=request_data.ticker,
                 asset_type=request_data.asset_type,
                 start_date=start_date,
-                end_date=end_date,
+                end_date=end_date
+            ):
+                yield chunk
+                
+                # Parse chunk to collect content for caching
+                try:
+                    if chunk.startswith("data: "):
+                        chunk_data = json.loads(chunk[6:].strip())
+                        
+                        if chunk_data.get('type') == 'content':
+                            analysis_content += chunk_data.get('text', '') + ' '
+                except:
+                    pass
+                
+                # Add small delay to make streaming more visible
+                await asyncio.sleep(0.05)
+            
+            # Cache the results for 6 hours
+            try:
+                redis_manager = get_redis_manager()
+                await redis_manager.set_json(cache_key, {'content': analysis_content}, expire=21600)  # 6 hours
+                logger.info(f"Cached technical analysis for {request_data.ticker}")
+            except Exception as cache_err:
+                logger.warning(f"Failed to cache technical analysis: {cache_err}")
+                
+        except Exception:
+            yield f"data: {{\"type\": \"error\", \"message\": \"Server xử lý lỗi. Vui lòng thử lại.\"}}\n\n"
+    
+    return StreamingResponse(
+        generate_analysis(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Headers": "*",
+        }
+    )
+
+@app.post("/api/news-analysis/stream")
+@check_balance_and_track_streaming("ai_insights") 
+async def get_news_analysis_stream_api(
+    request_data: InsightsRequest,
+    current_user: Optional[UserWithWallet] = Depends(get_optional_user),
+    request: Request = None
+):
+    """Phân tích tin tức với streaming response (Server-Sent Events) với Redis cache"""
+    
+    async def generate_analysis():
+        try:
+            # Initialize metadata at the start
+            metadata = {
+                'ticker': request_data.ticker,
+                'generated_at': datetime.now().isoformat(),
+                'look_back_days': request_data.look_back_days,
+                'authenticated': current_user is not None,
+                'analysis_type': 'news_analysis'
+            }
+            
+            # Send metadata first
+            yield f"data: {json.dumps({'type': 'metadata', 'data': metadata})}\n\n"
+            
+            # Create cache key for news analysis
+            cache_key = f"news_analysis:{request_data.ticker.upper()}:{request_data.look_back_days}"
+            
+            try:
+                # Try to get cached data from Redis
+                redis_manager = get_redis_manager()
+                cached_analysis = await redis_manager.get_json(cache_key)
+                
+                if cached_analysis:
+                    # Send cached data with streaming format
+                    yield f"data: {json.dumps({'type': 'status', 'message': 'Đang tải dữ liệu từ cache...', 'progress': 10})}\n\n"
+                    
+                    content = cached_analysis.get('content', '')
+                    if content:
+                        yield f"data: {json.dumps({'type': 'section_start', 'section': 'news_analysis', 'title': 'Phân Tích Tin Tức'})}\n\n"
+                        
+                        # Stream content in chunks
+                        words = content.split()
+                        chunk_size = 20
+                        for i in range(0, len(words), chunk_size):
+                            chunk_text = ' '.join(words[i:i+chunk_size])
+                            yield f"data: {json.dumps({'type': 'content', 'section': 'news_analysis', 'text': chunk_text})}\n\n"
+                            
+                            await asyncio.sleep(0.1)
+                        
+                        yield f"data: {json.dumps({'type': 'section_end', 'section': 'news_analysis'})}\n\n"
+                    
+                    yield f"data: {json.dumps({'type': 'complete', 'message': 'Phân tích tin tức hoàn tất từ cache!', 'progress': 100})}\n\n"
+                    return
+                    
+            except Exception as cache_err:
+                logger.warning(f"Cache error for news analysis: {cache_err}")
+                yield f"data: {json.dumps({'type': 'status', 'message': 'Cache không khả dụng, đang phân tích mới...', 'progress': 5})}\n\n"
+            
+            # No cache found, generate new analysis
+            # Store content for caching
+            analysis_content = ''
+            
+            # Generate streaming analysis and collect content for cache
+            async for chunk in get_news_analysis_streaming(
+                ticker=request_data.ticker,
+                asset_type=request_data.asset_type,
                 look_back_days=request_data.look_back_days
             ):
                 yield chunk
@@ -1690,34 +1776,334 @@ async def get_insights_stream_api(
                     if chunk.startswith("data: "):
                         chunk_data = json.loads(chunk[6:].strip())
                         
-                        if chunk_data.get('type') == 'section_start':
-                            current_section = chunk_data.get('section')
-                        elif chunk_data.get('type') == 'content' and current_section:
-                            section_key = f"{current_section.replace('_analysis', '')}_content"
-                            if section_key in insights_cache:
-                                insights_cache[section_key] += chunk_data.get('text', '') + ' '
-                        elif chunk_data.get('type') == 'section_end':
-                            current_section = None
+                        if chunk_data.get('type') == 'content':
+                            analysis_content += chunk_data.get('text', '') + ' '
                 except:
                     pass
                 
                 # Add small delay to make streaming more visible
-                import asyncio
+                
                 await asyncio.sleep(0.05)
             
-            # Cache the results for 6 hours
+            # Cache the results for 2 hours (news changes more frequently)
             try:
                 redis_manager = get_redis_manager()
-                await redis_manager.set_json(cache_key, insights_cache, expire=21600)  # 6 hours
-                logger.info(f"Cached insights for {request_data.ticker}")
+                await redis_manager.set_json(cache_key, {'content': analysis_content}, expire=7200)  # 2 hours
+                logger.info(f"Cached news analysis for {request_data.ticker}")
             except Exception as cache_err:
-                logger.warning(f"Failed to cache insights: {cache_err}")
+                logger.warning(f"Failed to cache news analysis: {cache_err}")
                 
         except Exception:
             yield f"data: {{\"type\": \"error\", \"message\": \"Server xử lý lỗi. Vui lòng thử lại.\"}}\n\n"
     
     return StreamingResponse(
-        generate_insights(),
+        generate_analysis(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Headers": "*",
+        }
+    )
+
+@app.post("/api/proprietary-trading-analysis/stream")
+@check_balance_and_track_streaming("ai_insights")
+async def get_proprietary_trading_analysis_stream_api(
+    request_data: InsightsRequest,
+    current_user: Optional[UserWithWallet] = Depends(get_optional_user),
+    request: Request = None
+):
+    """Phân tích giao dịch tự doanh với streaming response (Server-Sent Events) với Redis cache"""
+    
+    async def generate_analysis():
+        try:
+            # Initialize metadata at the start
+            metadata = {
+                'ticker': request_data.ticker,
+                'generated_at': datetime.now().isoformat(),
+                'authenticated': current_user is not None,
+                'analysis_type': 'proprietary_trading_analysis'
+            }
+            
+            # Send metadata first
+            yield f"data: {json.dumps({'type': 'metadata', 'data': metadata})}\n\n"
+            
+            # Create cache key for proprietary trading analysis
+            cache_key = f"proprietary_trading:{request_data.ticker.upper()}"
+            
+            try:
+                # Try to get cached data from Redis
+                redis_manager = get_redis_manager()
+                cached_analysis = await redis_manager.get_json(cache_key)
+                
+                if cached_analysis:
+                    # Send cached data with streaming format
+                    yield f"data: {json.dumps({'type': 'status', 'message': 'Đang tải dữ liệu từ cache...', 'progress': 10})}\n\n"
+                    
+                    content = cached_analysis.get('content', '')
+                    if content:
+                        yield f"data: {json.dumps({'type': 'section_start', 'section': 'proprietary_trading_analysis', 'title': 'Phân Tích Giao Dịch Tự Doanh'})}\n\n"
+                        
+                        # Stream content in chunks
+                        words = content.split()
+                        chunk_size = 20
+                        for i in range(0, len(words), chunk_size):
+                            chunk_text = ' '.join(words[i:i+chunk_size])
+                            yield f"data: {json.dumps({'type': 'content', 'section': 'proprietary_trading_analysis', 'text': chunk_text})}\n\n"
+                            
+                            await asyncio.sleep(0.1)
+                        
+                        yield f"data: {json.dumps({'type': 'section_end', 'section': 'proprietary_trading_analysis'})}\n\n"
+                    
+                    yield f"data: {json.dumps({'type': 'complete', 'message': 'Phân tích giao dịch tự doanh hoàn tất từ cache!', 'progress': 100})}\n\n"
+                    return
+                    
+            except Exception as cache_err:
+                logger.warning(f"Cache error for proprietary trading analysis: {cache_err}")
+                yield f"data: {json.dumps({'type': 'status', 'message': 'Cache không khả dụng, đang phân tích mới...', 'progress': 5})}\n\n"
+            
+            # No cache found, generate new analysis
+            # Store content for caching
+            analysis_content = ''
+            
+            # Generate streaming analysis and collect content for cache
+            async for chunk in get_proprietary_trading_analysis_streaming(
+                ticker=request_data.ticker
+            ):
+                yield chunk
+                
+                # Parse chunk to collect content for caching
+                try:
+                    if chunk.startswith("data: "):
+                        chunk_data = json.loads(chunk[6:].strip())
+                        
+                        if chunk_data.get('type') == 'content':
+                            analysis_content += chunk_data.get('text', '') + ' '
+                except:
+                    pass
+                
+                # Add small delay to make streaming more visible
+                
+                await asyncio.sleep(0.05)
+            
+            # Cache the results for 4 hours
+            try:
+                redis_manager = get_redis_manager()
+                await redis_manager.set_json(cache_key, {'content': analysis_content}, expire=14400)  # 4 hours
+                logger.info(f"Cached proprietary trading analysis for {request_data.ticker}")
+            except Exception as cache_err:
+                logger.warning(f"Failed to cache proprietary trading analysis: {cache_err}")
+                
+        except Exception:
+            yield f"data: {{\"type\": \"error\", \"message\": \"Server xử lý lỗi. Vui lòng thử lại.\"}}\n\n"
+    
+    return StreamingResponse(
+        generate_analysis(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Headers": "*",
+        }
+    )
+
+@app.post("/api/foreign-trading-analysis/stream")
+@check_balance_and_track_streaming("ai_insights")
+async def get_foreign_trading_analysis_stream_api(
+    request_data: InsightsRequest,
+    current_user: Optional[UserWithWallet] = Depends(get_optional_user),
+    request: Request = None
+):
+    """Phân tích giao dịch khối ngoại với streaming response (Server-Sent Events) với Redis cache"""
+    
+    async def generate_analysis():
+        try:
+            # Initialize metadata at the start
+            metadata = {
+                'ticker': request_data.ticker,
+                'generated_at': datetime.now().isoformat(),
+                'authenticated': current_user is not None,
+                'analysis_type': 'foreign_trading_analysis'
+            }
+            
+            # Send metadata first
+            yield f"data: {json.dumps({'type': 'metadata', 'data': metadata})}\n\n"
+            
+            # Create cache key for foreign trading analysis
+            cache_key = f"foreign_trading:{request_data.ticker.upper()}"
+            
+            try:
+                # Try to get cached data from Redis
+                redis_manager = get_redis_manager()
+                cached_analysis = await redis_manager.get_json(cache_key)
+                
+                if cached_analysis:
+                    # Send cached data with streaming format
+                    yield f"data: {json.dumps({'type': 'status', 'message': 'Đang tải dữ liệu từ cache...', 'progress': 10})}\n\n"
+                    
+                    content = cached_analysis.get('content', '')
+                    if content:
+                        yield f"data: {json.dumps({'type': 'section_start', 'section': 'foreign_trading_analysis', 'title': 'Phân Tích Giao Dịch Khối Ngoại'})}\n\n"
+                        
+                        # Stream content in chunks
+                        words = content.split()
+                        chunk_size = 20
+                        for i in range(0, len(words), chunk_size):
+                            chunk_text = ' '.join(words[i:i+chunk_size])
+                            yield f"data: {json.dumps({'type': 'content', 'section': 'foreign_trading_analysis', 'text': chunk_text})}\n\n"
+                            
+                            await asyncio.sleep(0.1)
+                        
+                        yield f"data: {json.dumps({'type': 'section_end', 'section': 'foreign_trading_analysis'})}\n\n"
+                    
+                    yield f"data: {json.dumps({'type': 'complete', 'message': 'Phân tích giao dịch khối ngoại hoàn tất từ cache!', 'progress': 100})}\n\n"
+                    return
+                    
+            except Exception as cache_err:
+                logger.warning(f"Cache error for foreign trading analysis: {cache_err}")
+                yield f"data: {json.dumps({'type': 'status', 'message': 'Cache không khả dụng, đang phân tích mới...', 'progress': 5})}\n\n"
+            
+            # No cache found, generate new analysis
+            # Store content for caching
+            analysis_content = ''
+            
+            # Generate streaming analysis and collect content for cache
+            async for chunk in get_foreign_trading_analysis_streaming(
+                ticker=request_data.ticker
+            ):
+                yield chunk
+                
+                # Parse chunk to collect content for caching
+                try:
+                    if chunk.startswith("data: "):
+                        chunk_data = json.loads(chunk[6:].strip())
+                        
+                        if chunk_data.get('type') == 'content':
+                            analysis_content += chunk_data.get('text', '') + ' '
+                except:
+                    pass
+                
+                # Add small delay to make streaming more visible
+                
+                await asyncio.sleep(0.05)
+            
+            # Cache the results for 4 hours
+            try:
+                redis_manager = get_redis_manager()
+                await redis_manager.set_json(cache_key, {'content': analysis_content}, expire=14400)  # 4 hours
+                logger.info(f"Cached foreign trading analysis for {request_data.ticker}")
+            except Exception as cache_err:
+                logger.warning(f"Failed to cache foreign trading analysis: {cache_err}")
+                
+        except Exception:
+            yield f"data: {{\"type\": \"error\", \"message\": \"Server xử lý lỗi. Vui lòng thử lại.\"}}\n\n"
+    
+    return StreamingResponse(
+        generate_analysis(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Headers": "*",
+        }
+    )
+
+@app.post("/api/shareholder-trading-analysis/stream")
+@check_balance_and_track_streaming("ai_insights")
+async def get_shareholder_trading_analysis_stream_api(
+    request_data: InsightsRequest,
+    current_user: Optional[UserWithWallet] = Depends(get_optional_user),
+    request: Request = None
+):
+    """Phân tích giao dịch cổ đông nội bộ với streaming response (Server-Sent Events) với Redis cache"""
+    
+    async def generate_analysis():
+        try:
+            # Initialize metadata at the start
+            metadata = {
+                'ticker': request_data.ticker,
+                'generated_at': datetime.now().isoformat(),
+                'authenticated': current_user is not None,
+                'analysis_type': 'shareholder_trading_analysis'
+            }
+            
+            # Send metadata first
+            yield f"data: {json.dumps({'type': 'metadata', 'data': metadata})}\n\n"
+            
+            # Create cache key for shareholder trading analysis
+            cache_key = f"shareholder_trading:{request_data.ticker.upper()}"
+            
+            try:
+                # Try to get cached data from Redis
+                redis_manager = get_redis_manager()
+                cached_analysis = await redis_manager.get_json(cache_key)
+                
+                if cached_analysis:
+                    # Send cached data with streaming format
+                    yield f"data: {json.dumps({'type': 'status', 'message': 'Đang tải dữ liệu từ cache...', 'progress': 10})}\n\n"
+                    
+                    content = cached_analysis.get('content', '')
+                    if content:
+                        yield f"data: {json.dumps({'type': 'section_start', 'section': 'shareholder_trading_analysis', 'title': 'Phân Tích Giao Dịch Cổ Đông Nội Bộ'})}\n\n"
+                        
+                        # Stream content in chunks
+                        words = content.split()
+                        chunk_size = 20
+                        for i in range(0, len(words), chunk_size):
+                            chunk_text = ' '.join(words[i:i+chunk_size])
+                            yield f"data: {json.dumps({'type': 'content', 'section': 'shareholder_trading_analysis', 'text': chunk_text})}\n\n"
+                            
+                            await asyncio.sleep(0.1)
+                        
+                        yield f"data: {json.dumps({'type': 'section_end', 'section': 'shareholder_trading_analysis'})}\n\n"
+                    
+                    yield f"data: {json.dumps({'type': 'complete', 'message': 'Phân tích giao dịch cổ đông hoàn tất từ cache!', 'progress': 100})}\n\n"
+                    return
+                    
+            except Exception as cache_err:
+                logger.warning(f"Cache error for shareholder trading analysis: {cache_err}")
+                yield f"data: {json.dumps({'type': 'status', 'message': 'Cache không khả dụng, đang phân tích mới...', 'progress': 5})}\n\n"
+            
+            # No cache found, generate new analysis
+            # Store content for caching
+            analysis_content = ''
+            
+            # Generate streaming analysis and collect content for cache
+            async for chunk in get_shareholder_trading_analysis_streaming(
+                ticker=request_data.ticker
+            ):
+                yield chunk
+                
+                # Parse chunk to collect content for caching
+                try:
+                    if chunk.startswith("data: "):
+                        chunk_data = json.loads(chunk[6:].strip())
+                        
+                        if chunk_data.get('type') == 'content':
+                            analysis_content += chunk_data.get('text', '') + ' '
+                except:
+                    pass
+                
+                # Add small delay to make streaming more visible
+                
+                await asyncio.sleep(0.05)
+            
+            # Cache the results for 8 hours
+            try:
+                redis_manager = get_redis_manager()
+                await redis_manager.set_json(cache_key, {'content': analysis_content}, expire=28800)  # 8 hours
+                logger.info(f"Cached shareholder trading analysis for {request_data.ticker}")
+            except Exception as cache_err:
+                logger.warning(f"Failed to cache shareholder trading analysis: {cache_err}")
+                
+        except Exception:
+            yield f"data: {{\"type\": \"error\", \"message\": \"Server xử lý lỗi. Vui lòng thử lại.\"}}\n\n"
+    
+    return StreamingResponse(
+        generate_analysis(),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -1728,40 +2114,90 @@ async def get_insights_stream_api(
     )
 
 @app.post("/api/intraday_match_analysis")
-@check_balance_and_track_streaming("intraday_match_analysis")
+@check_balance_and_track_streaming("ai_insights")
 async def get_intraday_match_analysis_api(
-    symbol: str = Query(..., description="Mã cổ phiếu"),
+    ticker: str = Query(..., description="Mã cổ phiếu"),
     date: str = Query(..., description="Ngày phân tích (YYYY-MM-DD hoặc YYYYMMDD)"),
     current_user: Optional[UserWithWallet] = Depends(get_optional_user),
     request: Request = None
 ):
-    """Phân tích khớp lệnh trong phiên với streaming response"""
+    """Phân tích khớp lệnh trong phiên với streaming response với Redis cache"""
     
     try:
-        from news_analysis import get_intraday_match_analysis_streaming
-        
         async def generate_analysis():
             try:
                 # Send metadata first
-                import json
                 metadata = {
-                    'symbol': symbol.upper(),
+                    'ticker': ticker.upper(),
                     'date': date,
                     'generated_at': datetime.now().isoformat(),
                     'authenticated': current_user is not None
                 }
                 yield f"data: {json.dumps({'type': 'metadata', 'data': metadata})}\n\n"
                 
-                # Generate streaming analysis
-                for chunk in get_intraday_match_analysis_streaming(symbol=symbol, date=date):
+                # Create cache key for intraday analysis
+                cache_key = f"intraday_analysis:{ticker.upper()}:{date}"
+                
+                try:
+                    # Try to get cached data from Redis
+                    redis_manager = get_redis_manager()
+                    cached_analysis = await redis_manager.get_json(cache_key)
+                    
+                    if cached_analysis:
+                        # Send cached data with streaming format
+                        yield f"data: {json.dumps({'type': 'status', 'message': 'Đang tải dữ liệu từ cache...', 'progress': 10})}\n\n"
+                        
+                        content = cached_analysis.get('content', '')
+                        if content:
+                            yield f"data: {json.dumps({'type': 'section_start', 'section': 'intraday_analysis', 'title': 'Phân Tích Khớp Lệnh Trong Phiên'})}\n\n"
+                            
+                            # Stream content in chunks
+                            words = content.split()
+                            chunk_size = 20
+                            for i in range(0, len(words), chunk_size):
+                                chunk_text = ' '.join(words[i:i+chunk_size])
+                                yield f"data: {json.dumps({'type': 'content', 'section': 'intraday_analysis', 'text': chunk_text})}\n\n"
+                                await asyncio.sleep(0.1)
+                            
+                            yield f"data: {json.dumps({'type': 'section_end', 'section': 'intraday_analysis'})}\n\n"
+                        
+                        yield f"data: {json.dumps({'type': 'complete', 'message': 'Phân tích khớp lệnh hoàn tất từ cache!', 'progress': 100})}\n\n"
+                        return
+                        
+                except Exception as cache_err:
+                    logger.warning(f"Cache error for intraday analysis: {cache_err}")
+                    yield f"data: {json.dumps({'type': 'status', 'message': 'Cache không khả dụng, đang phân tích mới...', 'progress': 5})}\n\n"
+                
+                # No cache found, generate new analysis
+                analysis_content = ''
+                
+                # Generate streaming analysis and collect content for cache
+                async for chunk in get_intraday_match_analysis_streaming(symbol=ticker, date=date):
                     yield chunk
+                    
+                    # Parse chunk to collect content for caching
+                    try:
+                        if chunk.startswith("data: "):
+                            chunk_data = json.loads(chunk[6:].strip())
+                            
+                            if chunk_data.get('type') == 'content':
+                                analysis_content += chunk_data.get('text', '') + ' '
+                    except:
+                        pass
+                    
                     # Add small delay to make streaming more visible
-                    import asyncio
                     await asyncio.sleep(0.05)
+                
+                # Cache the results for 12 hours (intraday data changes less frequently)
+                try:
+                    redis_manager = get_redis_manager()
+                    await redis_manager.set_json(cache_key, {'content': analysis_content}, expire=43200)  # 12 hours
+                    logger.info(f"Cached intraday analysis for {ticker} on {date}")
+                except Exception as cache_err:
+                    logger.warning(f"Failed to cache intraday analysis: {cache_err}")
                     
             except Exception as e:
-                logger.error(f"Error in intraday analysis streaming: {e}")
-                yield f"data: {json.dumps({'type': 'error', 'message': f'Lỗi phân tích: {str(e)}'})}\n\n"
+                yield f"data: {json.dumps({'type': 'error', 'message': f'Lỗi phân tích: {e}'})}\n\n"
         
         return StreamingResponse(
             generate_analysis(),

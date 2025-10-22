@@ -21,6 +21,123 @@ from tenacity import (
     retry_if_result,
 )
 
+import asyncio
+import json
+import time
+import threading
+import queue
+from concurrent.futures import ThreadPoolExecutor
+
+async def generate_with_heartbeat(model, prompt, section_name="analysis"):
+    """
+    Chạy model.generate_content với heartbeat thực sự hiệu quả và streaming hoàn chỉnh
+    """
+    result_queue = asyncio.Queue()
+    error_queue = asyncio.Queue()
+    generation_started = asyncio.Event()
+    generation_completed = asyncio.Event()
+    
+    def split_text_into_chunks(text, chunk_size=50):
+        """Chia text thành các chunks nhỏ hơn để tạo hiệu ứng streaming"""
+        words = text.split()
+        chunks = []
+        for i in range(0, len(words), chunk_size):
+            chunk = ' '.join(words[i:i+chunk_size])
+            chunks.append(chunk)
+        return chunks
+    
+    # Async function để chạy generation
+    async def run_generation():
+        try:
+            generation_started.set()
+            
+            # Chạy sync function trong thread pool
+            loop = asyncio.get_event_loop()
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                response = await loop.run_in_executor(
+                    executor, 
+                    lambda: model.generate_content([prompt], stream=True)
+                )
+            
+            # Stream từng chunk từ Gemini
+            for chunk in response:
+                if hasattr(chunk, 'text') and chunk.text:
+                    # Nếu chunk quá lớn, chia nhỏ thêm
+                    if len(chunk.text.split()) > 50:
+                        sub_chunks = split_text_into_chunks(chunk.text, 30)
+                        for sub_chunk in sub_chunks:
+                            await result_queue.put(('content', sub_chunk))
+                            await asyncio.sleep(0.15)
+                    else:
+                        await result_queue.put(('content', chunk.text))
+                        await asyncio.sleep(0.2)
+            
+            await result_queue.put(('complete', None))
+            generation_completed.set()
+            
+        except Exception as e:
+            await error_queue.put(('error', str(e)))
+            generation_completed.set()
+    
+    # Async function để gửi heartbeat và xử lý kết quả
+    async def process_results():
+        heartbeat_count = 0
+        last_heartbeat = time.time()
+        heartbeat_interval = 3  # Gửi heartbeat mỗi 3 giây
+        
+        while not generation_completed.is_set():
+            try:
+                # Kiểm tra nếu có lỗi
+                try:
+                    error_type, error_msg = error_queue.get_nowait()
+                    yield f"data: {json.dumps({'type': 'error', 'section': section_name, 'message': f'Lỗi: {error_msg}'})}\n\n"
+                    return
+                except asyncio.QueueEmpty:
+                    pass
+                
+                # Xử lý kết quả từ generation
+                content_processed = False
+                try:
+                    while True:
+                        result_type, content = result_queue.get_nowait()
+                        content_processed = True
+                        
+                        if result_type == 'content':
+                            yield f"data: {json.dumps({'type': 'content', 'section': section_name, 'text': content})}\n\n"
+                        elif result_type == 'complete':
+                            return  # Generation hoàn tất
+                            
+                except asyncio.QueueEmpty:
+                    pass
+                
+                # Gửi heartbeat nếu không có content và đã đủ thời gian
+                current_time = time.time()
+                if not content_processed and generation_started.is_set() and (current_time - last_heartbeat) >= heartbeat_interval:
+                    heartbeat_count += 1
+                    yield f"data: {json.dumps({'type': 'status', 'message': f'🤖 Đang xử lý {section_name}... ({heartbeat_count})', 'progress': 0, 'heartbeat': True})}\n\n"
+                    last_heartbeat = current_time
+                
+                # Chờ ngắn trước khi kiểm tra lại
+                await asyncio.sleep(0.1)
+                
+            except Exception as e:
+                yield f"data: {json.dumps({'type': 'error', 'section': section_name, 'message': f'Lỗi xử lý: {str(e)}'})}\n\n"
+                return
+    
+    try:
+        # Bắt đầu generation task
+        generation_task = asyncio.create_task(run_generation())
+        
+        # Xử lý kết quả và heartbeat
+        async for chunk in process_results():
+            yield chunk
+        
+        # Đảm bảo generation task hoàn thành
+        await generation_task
+        
+    except Exception as e:
+        yield f"data: {json.dumps({'type': 'error', 'section': section_name, 'message': f'Lỗi: {str(e)}'})}\n\n"
+
 def check_rate_limit_status(response):
     """Determine if response shows rate limiting (HTTP 429)"""
     return response.status_code == 429
@@ -36,7 +153,6 @@ def execute_request(url, headers):
     time.sleep(random.uniform(2, 6))
     response = requests.get(url, headers=headers)
     return response
-
 
 def extractNewsData(search_term, date_start, date_end):
     """
@@ -145,7 +261,7 @@ def fetch_google_news(
 
     return f"## {search_query}, from {date_previous} to {current_date}:\n\n{news_content}"
 
-def get_intraday_match_analysis_streaming(symbol: str, date: str):
+async def get_intraday_match_analysis_streaming(symbol: str, date: str):
     """
     Streaming version of get_intraday_match_analysis.
     Args:
@@ -173,8 +289,14 @@ def get_intraday_match_analysis_streaming(symbol: str, date: str):
 
         # Bước 1: Lấy dữ liệu khớp lệnh
         yield f"data: {json.dumps({'type': 'status', 'message': 'Đang tải dữ liệu khớp lệnh trong phiên...', 'progress': 10})}\n\n"
-        GiaKhopLenh = pd.DataFrame(get_match_price(symbol=symbol, date=date)['data'])
-        aggregates = pd.DataFrame(get_match_price(symbol=symbol, date=date)['aggregates'])
+        
+        try:
+            match_data = get_match_price(symbol=symbol, date=date)
+            GiaKhopLenh = pd.DataFrame(match_data['data'])
+            aggregates = pd.DataFrame(match_data['aggregates'])
+        except Exception as e:
+            yield f"data: {json.dumps({'type': 'error', 'message': f'Lỗi khi lấy dữ liệu khớp lệnh: {str(e)}'})}\n\n"
+            return
 
         # Lấy các điểm dữ liệu cách nhau 100 điểm
         GiaKhopLenh_reduced = GiaKhopLenh.iloc[::100].reset_index(drop=True)
@@ -209,7 +331,7 @@ def get_intraday_match_analysis_streaming(symbol: str, date: str):
         }, indent=2, ensure_ascii=False)
 
         yield f"data: {json.dumps({'type': 'status', 'message': 'Dữ liệu khớp lệnh đã sẵn sàng...', 'progress': 30})}\n\n"
-
+        
         # Bước 2: Tạo prompt cho phân tích
         prompt = f"""
         Bạn là chuyên gia phân tích tài chính chuyên nghiệp. 
@@ -234,26 +356,15 @@ def get_intraday_match_analysis_streaming(symbol: str, date: str):
 
         yield f"data: {json.dumps({'type': 'status', 'message': 'Đang phân tích dữ liệu...', 'progress': 50})}\n\n"
 
-        # Bước 3: Gọi mô hình Generative AI
-        try:
-            model = genai.GenerativeModel('gemini-2.5-flash')
-            response = model.generate_content([prompt], stream=True)
-
-            analysis_content = ""
-            for chunk in response:
-                if hasattr(chunk, 'text') and chunk.text:
-                    analysis_content += chunk.text
-                    yield f"data: {json.dumps({'type': 'content', 'section': 'analysis', 'text': chunk.text})}\n\n"
-
-            yield f"data: {json.dumps({'type': 'status', 'message': 'Phân tích hoàn tất!', 'progress': 100})}\n\n"
-
-        except Exception:
-            yield f"data: {json.dumps({'type': 'error', 'message': 'Lỗi trong quá trình phân tích'})}\n\n"
+        # Bước 3: Sử dụng async generator với heartbeat
+        model = genai.GenerativeModel('gemini-2.5-flash')
+        async for chunk in generate_with_heartbeat(model, prompt, section_name="intraday_analysis"):
+            yield chunk
 
         yield f"data: {json.dumps({'type': 'section_end', 'section': 'intraday_analysis'})}\n\n"
 
-    except Exception:
-        yield f"data: {json.dumps({'type': 'error', 'message': f'Lỗi hệ thống'})}\n\n"
+    except Exception as e:
+        yield f"data: {json.dumps({'type': 'error', 'message': f'Lỗi hệ thống: {str(e)}'})}\n\n"
 
 system_prompt_ta = """
 You are a **professional, objective, and data-driven financial analyst and trading expert**. 
@@ -283,7 +394,6 @@ Enrich the report with your own relevant knowledge when necessary.
 - Structure the analysis logically, ending with a **Markdown summary table** listing:  
   *Indicator – Observation – Interpretation – Implication for traders*.
 """
-
 
 system_prompt_news = """
 You are a **professional financial analyst and news researcher**. 
@@ -319,12 +429,12 @@ def get_news_for_ticker(ticker: str, asset_type: str = 'stock', look_back_days: 
     elif asset_type == 'crypto': news = fetch_google_news(f'Important news for crypto currencies ticket {ticker}', datetime.now().strftime('%Y-%m-%d'), look_back_days)
     return news
 
-def get_insights_streaming(ticker: str, asset_type: str = 'stock', start_date: str = (datetime.now() - timedelta(days=365)).strftime('%Y-%m-%d'), end_date: str = datetime.now().strftime('%Y-%m-%d'), look_back_days: int=30):
+async def get_insights_streaming(ticker: str, asset_type: str = 'stock', start_date: str = (datetime.now() - timedelta(days=365)).strftime('%Y-%m-%d'), end_date: str = datetime.now().strftime('%Y-%m-%d'), look_back_days: int=30):
     """
     Streaming version of get_insights that yields chunks in real-time.
     Returns a generator that yields Server-Sent Events formatted data.
     """
-    ticker = ticker.upper()
+    
     
     try:
         # Phase 1: Technical Analysis
@@ -337,25 +447,18 @@ def get_insights_streaming(ticker: str, asset_type: str = 'stock', start_date: s
         signals = detect_signals(df_ta)
         yield f"data: {json.dumps({'type': 'status', 'message': 'Đang tải dữ liệu chứng khoán...', 'progress': 10})}\n\n"
         
-        # Create model instance
-        model = genai.GenerativeModel('gemini-2.0-flash')
-        
         yield f"data: {json.dumps({'type': 'status', 'message': 'Đang phân tích kỹ thuật...', 'progress': 15})}\n\n"
         yield f"data: {json.dumps({'type': 'section_start', 'section': 'technical_analysis', 'title': 'Phân Tích Kỹ Thuật'})}\n\n"
         
         try:
-            response_ta = model.generate_content([
-                f"System: {system_prompt_ta}\n\n"
-                f"You are a professional analyst. Provide a deep, objective report for stock ticker {ticker}. "
-                f"Focus only on technical and quantitative insights. "
-                f"Given signals: '{signals}'."
-            ], stream=True)
-            
-            technical_content = ""
-            for chunk in response_ta:
-                if hasattr(chunk, 'text') and chunk.text:
-                    technical_content += chunk.text
-                    yield f"data: {json.dumps({'type': 'content', 'section': 'technical_analysis', 'text': chunk.text})}\n\n"
+            prompt = f"""System: {system_prompt_ta}\n\n"
+                        You are a professional analyst. Provide a deep, objective report for stock ticker {ticker}.
+                        Focus only on technical and quantitative insights.
+                        Given signals: '{signals}'."""
+            # Create model instance
+            model = genai.GenerativeModel('gemini-2.0-flash')
+            async for chunk in generate_with_heartbeat(model, prompt, section_name="technical_analysis"):
+                yield chunk
         except Exception:
             technical_content = f"Lỗi trong phân tích kỹ thuật"
             yield f"data: {json.dumps({'type': 'error', 'section': 'technical_analysis', 'message': technical_content})}\n\n"
@@ -368,18 +471,13 @@ def get_insights_streaming(ticker: str, asset_type: str = 'stock', start_date: s
         yield f"data: {json.dumps({'type': 'section_start', 'section': 'news_analysis', 'title': 'Phân Tích Tin Tức'})}\n\n"
         news = get_news_for_ticker(ticker=ticker, asset_type=asset_type, look_back_days=30)
         try:
-            response_news = model.generate_content([
-                f"System: {system_prompt_news}\n\n"
-                f"You are a professional financial analyst. Provide an objective and insightful news report for stock ticker {ticker}. "
-                f"Focus only on the financial relevance and trading implications. "
-                f"Given recent news data: '{news}'."
-            ], stream=True)
-            
-            news_content = ""
-            for chunk in response_news:
-                if hasattr(chunk, 'text') and chunk.text:
-                    news_content += chunk.text
-                    yield f"data: {json.dumps({'type': 'content', 'section': 'news_analysis', 'text': chunk.text})}\n\n"
+            prompt = f"""System: {system_prompt_news}\n\n
+                        You are a professional financial analyst. Provide an objective and insightful news report for stock ticker {ticker}.
+                        Focus only on the financial relevance and trading implications.
+                        Given recent news data: '{news}'."""
+            model = genai.GenerativeModel('gemini-2.0-flash')
+            async for chunk in generate_with_heartbeat(model, prompt, section_name="news_analysis"):
+                yield chunk
         except Exception:
             news_content = f"Lỗi trong phân tích tin tức"
             yield f"data: {json.dumps({'type': 'error', 'section': 'news_analysis', 'message': news_content})}\n\n"
@@ -432,13 +530,9 @@ def get_insights_streaming(ticker: str, asset_type: str = 'stock', start_date: s
 
         # Bước 3: Gọi mô hình Generative AI
         try:
-            response = genai.GenerativeModel('gemini-2.5-flash').generate_content([prompt], stream=True)
-
-            proprietary_content = ""
-            for chunk in response:
-                if hasattr(chunk, 'text') and chunk.text:
-                    proprietary_content += chunk.text
-                    yield f"data: {json.dumps({'type': 'content', 'section': 'proprietary_trading_analysis', 'text': chunk.text})}\n\n"
+            model = genai.GenerativeModel('gemini-2.5-flash')
+            async for chunk in generate_with_heartbeat(model, prompt, section_name="proprietary_trading_analysis"):
+                yield chunk
         except Exception:
             yield f"data: {json.dumps({'type': 'error', 'section': 'proprietary_trading_analysis', 'message': 'Lỗi trong quá trình phân tích'})}\n\n"
 
@@ -493,13 +587,9 @@ def get_insights_streaming(ticker: str, asset_type: str = 'stock', start_date: s
 
         # Bước 3: Gọi mô hình Generative AI
         try:
-            response = genai.GenerativeModel('gemini-2.5-flash').generate_content([prompt], stream=True)
-
-            foreign_content = ""
-            for chunk in response:
-                if hasattr(chunk, 'text') and chunk.text:
-                    foreign_content += chunk.text
-                    yield f"data: {json.dumps({'type': 'content', 'section': 'foreign_trading_analysis', 'text': chunk.text})}\n\n"
+            model = genai.GenerativeModel('gemini-2.5-flash')
+            async for chunk in generate_with_heartbeat(model, prompt, section_name="foreign_trading_analysis"):
+                yield chunk
         except Exception:
             yield f"data: {json.dumps({'type': 'error', 'section': 'foreign_trading_analysis', 'message': 'Lỗi trong quá trình phân tích'})}\n\n"
 
@@ -564,61 +654,295 @@ def get_insights_streaming(ticker: str, asset_type: str = 'stock', start_date: s
         # Bước 3: Gọi mô hình Generative AI
         try:
             model = genai.GenerativeModel('gemini-2.5-flash')
-            response = model.generate_content([prompt], stream=True)
-
-            shareholder_content = ""
-            for chunk in response:
-                if hasattr(chunk, 'text') and chunk.text:
-                    shareholder_content += chunk.text
-                    yield f"data: {json.dumps({'type': 'content', 'section': 'shareholder_trading_analysis', 'text': chunk.text})}\n\n"
+            async for chunk in generate_with_heartbeat(model, prompt, section_name="shareholder_trading_analysis"):
+                yield chunk
         except Exception:
             yield f"data: {json.dumps({'type': 'error', 'section': 'shareholder_trading_analysis', 'message': 'Lỗi trong quá trình phân tích'})}\n\n"
 
         yield f"data: {json.dumps({'type': 'section_end', 'section': 'shareholder_trading_analysis'})}\n\n"
-        
-        # Phase 6: Combined Analysis
-        yield f"data: {json.dumps({'type': 'status', 'message': 'Đang tạo phân tích tổng hợp...', 'progress': 80})}\n\n"
-        yield f"data: {json.dumps({'type': 'section_start', 'section': 'combined_analysis', 'title': 'Phân Tích Tổng Hợp & Khuyến Nghị'})}\n\n"
-        
-        try:
-            response_combined = genai.GenerativeModel('gemini-2.5-flash').generate_content([
-                f"""
-                You are a professional financial analyst.
-                Analyze and synthesize the following information about stock {ticker}:
-                - News: {news_content}
-                - Technical signals: {technical_content}
-                - Shareholder trading analysis: {shareholder_content}
-                - Foreign trading analysis: {foreign_content}
-                - Proprietary trading analysis: {proprietary_content}
-
-                Your task:
-                1. Write in **Vietnamese** clear, professional, easy-to-read and insightful report.
-                2. Identify key drivers and sentiment behind the data.
-                3. Be **specific, data-driven, objective** with concise reasoning.
-                4. Support insights with brief references to the provided data (no generic statements).
-
-                Output must be:
-                - Structured, analytical, and concise.
-                - Focused on helping traders make informed decisions quickly.
-                """
-            ], stream=True)
-            
-            combined_content = ""
-            for chunk in response_combined:
-                if hasattr(chunk, 'text') and chunk.text:
-                    combined_content += chunk.text
-                    yield f"data: {json.dumps({'type': 'content', 'section': 'combined_analysis', 'text': chunk.text})}\n\n"
-        except Exception as e:
-            combined_content = f"Lỗi trong phân tích tổng hợp: {str(e)}"
-            yield f"data: {json.dumps({'type': 'error', 'section': 'combined_analysis', 'message': combined_content})}\n\n"
-            
-        yield f"data: {json.dumps({'type': 'section_end', 'section': 'combined_analysis'})}\n\n"
-        
+    
         # Completion
         yield f"data: {json.dumps({'type': 'complete', 'message': 'Phân tích hoàn tất!', 'progress': 100})}\n\n"
         
     except Exception:
         yield f"data: {json.dumps({'type': 'error', 'message': f'Lỗi hệ thống'})}\n\n"
+
+# ==================== SEPARATE PHASE FUNCTIONS ====================
+
+async def get_technical_analysis_streaming(ticker: str, asset_type: str = 'stock', start_date: str = (datetime.now() - timedelta(days=365)).strftime('%Y-%m-%d'), end_date: str = datetime.now().strftime('%Y-%m-%d')):
+    """
+    Technical analysis phase separated from get_insights_streaming.
+    Returns a generator that yields Server-Sent Events formatted data.
+    """
+    
+    try:
+        # Phase 1: Technical Analysis
+        if asset_type == 'stock':
+            df = load_stock_data_vnquant(ticker, asset_type, start_date, end_date)
+        else:
+            df = load_stock_data_yf(ticker, asset_type, start_date, end_date)
+        df_ta = add_technical_indicators_yf(df)
+        signals = detect_signals(df_ta)
+        yield f"data: {json.dumps({'type': 'status', 'message': 'Đang tải dữ liệu chứng khoán...', 'progress': 10})}\n\n"
+        
+        yield f"data: {json.dumps({'type': 'status', 'message': 'Đang phân tích kỹ thuật...', 'progress': 50})}\n\n"
+        yield f"data: {json.dumps({'type': 'section_start', 'section': 'technical_analysis', 'title': 'Phân Tích Kỹ Thuật'})}\n\n"
+        
+        try:
+            prompt = f"""System: {system_prompt_ta}\n\n"
+                        You are a professional analyst. Provide a deep, objective report for stock ticker {ticker}.
+                        Focus only on technical and quantitative insights.
+                        Given signals: '{signals}'."""
+            # Create model instance
+            model = genai.GenerativeModel('gemini-2.0-flash')
+            async for chunk in generate_with_heartbeat(model, prompt, section_name="technical_analysis"):
+                yield chunk
+        except Exception:
+            technical_content = f"Lỗi trong phân tích kỹ thuật"
+            yield f"data: {json.dumps({'type': 'error', 'section': 'technical_analysis', 'message': technical_content})}\n\n"
+        
+        yield f"data: {json.dumps({'type': 'section_end', 'section': 'technical_analysis'})}\n\n"
+        yield f"data: {json.dumps({'type': 'complete', 'message': 'Phân tích kỹ thuật hoàn tất!', 'progress': 100})}\n\n"
+        
+    except Exception:
+        yield f"data: {json.dumps({'type': 'error', 'message': f'Lỗi hệ thống trong phân tích kỹ thuật'})}\n\n"
+
+async def get_news_analysis_streaming(ticker: str, asset_type: str = 'stock', look_back_days: int = 30):
+    """
+    News analysis phase separated from get_insights_streaming.
+    Returns a generator that yields Server-Sent Events formatted data.
+    """
+    try:
+        # Phase 2: News Analysis
+        yield f"data: {json.dumps({'type': 'status', 'message': 'Đang phân tích tin tức...', 'progress': 50})}\n\n"
+        yield f"data: {json.dumps({'type': 'section_start', 'section': 'news_analysis', 'title': 'Phân Tích Tin Tức'})}\n\n"
+        news = get_news_for_ticker(ticker=ticker, asset_type=asset_type, look_back_days=look_back_days)
+        try:
+            prompt = f"""System: {system_prompt_news}\n\n
+                        You are a professional financial analyst. Provide an objective and insightful news report for stock ticker {ticker}.
+                        Focus only on the financial relevance and trading implications.
+                        Given recent news data: '{news}'."""
+            model = genai.GenerativeModel('gemini-2.0-flash')
+            async for chunk in generate_with_heartbeat(model, prompt, section_name="news_analysis"):
+                yield chunk
+        except Exception:
+            news_content = f"Lỗi trong phân tích tin tức"
+            yield f"data: {json.dumps({'type': 'error', 'section': 'news_analysis', 'message': news_content})}\n\n"
+            
+        yield f"data: {json.dumps({'type': 'section_end', 'section': 'news_analysis'})}\n\n"
+        yield f"data: {json.dumps({'type': 'complete', 'message': 'Phân tích tin tức hoàn tất!', 'progress': 100})}\n\n"
+        
+    except Exception:
+        yield f"data: {json.dumps({'type': 'error', 'message': f'Lỗi hệ thống trong phân tích tin tức'})}\n\n"
+
+async def get_proprietary_trading_analysis_streaming(ticker: str):
+    """
+    Proprietary trading analysis phase separated from get_insights_streaming.
+    Returns a generator that yields Server-Sent Events formatted data.
+    """
+    try:
+        # Phase 3: Proprietary Trading Analysis
+        yield f"data: {json.dumps({'type': 'status', 'message': 'Đang phân tích giao dịch tự doanh...', 'progress': 10})}\n\n"
+        yield f"data: {json.dumps({'type': 'section_start', 'section': 'proprietary_trading_analysis', 'title': 'Phân Tích Giao Dịch Tự Doanh'})}\n\n"
+
+        # Bước 1: Lấy dữ liệu khớp lệnh
+        data = get_proprietary_trading_data(symbol=ticker, start_date=None, end_date=None, page_index=1, page_size=14)["ListDataTudoanh"]
+        df = pd.DataFrame(data)
+
+        schema = {
+            "Symbol": "Mã cổ phiếu",
+            "Date": "Ngày giao dịch",
+            "KLcpMua": "Khối lượng cổ phiếu tự doanh mua (cổ phiếu)",
+            "KlcpBan": "Khối lượng cổ phiếu tự doanh bán (cổ phiếu)",
+            "GtMua": "Giá trị tự doanh mua (đồng)",
+            "GtBan": "Giá trị tự doanh bán (đồng)"
+            }
+        
+        df_json = df.to_json(orient="records", force_ascii=False)
+        df = json.dumps({
+            "schema": schema,
+            "records": json.loads(df_json)
+        }, indent=2, ensure_ascii=False)
+
+        yield f"data: {json.dumps({'type': 'status', 'message': 'Dữ liệu khớp lệnh đã sẵn sàng...','progress': 50})}\n\n"
+
+        # Bước 2: Tạo prompt cho phân tích
+        prompt = f"""
+        Bạn là chuyên gia phân tích tài chính chuyên nghiệp. 
+        Hãy đánh giá chi tiết và chính xác mã cổ phiếu dựa trên dữ liệu giao dịch tự doanh dưới đây.
+        Đưa ra các nhận định chuyên môn, giả thuyết hợp lý có cơ sở.
+        Dữ liệu giao dịch tự doanh:
+        {df}
+
+        Yêu cầu:
+        - Trả lời cực kì KHÁCH QUAN mang tính chuyên môn cao.
+        - Đọc hiểu số liệu đã cung cấp thật chuyên sâu.
+        - Phân tích hành vi giao dịch tự doanh.
+        - Đánh giá xu hướng niềm tin và tác động tới giá cổ phiếu.
+        - Đưa ra giả thuyết hợp lý, sáng tạo, có chiều sâu.
+        - Không giải thích lại yêu cầu, không thêm lời mở đầu hoặc kết luận ngoài phân tích chính.
+        """
+
+        yield f"data: {json.dumps({'type': 'status', 'message': 'Đang phân tích dữ liệu tự doanh...'})}\n\n"
+
+        # Bước 3: Gọi mô hình Generative AI
+        try:
+            model = genai.GenerativeModel('gemini-2.5-flash')
+            async for chunk in generate_with_heartbeat(model, prompt, section_name="proprietary_trading_analysis"):
+                yield chunk
+        except Exception:
+            yield f"data: {json.dumps({'type': 'error', 'section': 'proprietary_trading_analysis', 'message': 'Lỗi trong quá trình phân tích'})}\n\n"
+
+        yield f"data: {json.dumps({'type': 'section_end', 'section': 'proprietary_trading_analysis'})}\n\n"
+        yield f"data: {json.dumps({'type': 'complete', 'message': 'Phân tích giao dịch tự doanh hoàn tất!', 'progress': 100})}\n\n"
+        
+    except Exception:
+        yield f"data: {json.dumps({'type': 'error', 'message': f'Lỗi hệ thống trong phân tích giao dịch tự doanh'})}\n\n"
+
+async def get_foreign_trading_analysis_streaming(ticker: str):
+    """
+    Foreign trading analysis phase separated from get_insights_streaming.
+    Returns a generator that yields Server-Sent Events formatted data.
+    """
+    
+    
+    try:
+        # Phase 4: Foreign Trading Analysis
+        yield f"data: {json.dumps({'type': 'status', 'message': 'Đang phân tích giao dịch khối ngoại...', 'progress': 10})}\n\n"
+        yield f"data: {json.dumps({'type': 'section_start', 'section': 'foreign_trading_analysis', 'title': 'Phân Tích Giao Dịch Khối Ngoại'})}\n\n"
+        # Bước 1: Lấy dữ liệu khớp lệnh
+        data = get_foreign_trading_data(symbol=ticker, start_date=None, end_date=None, page_index=1, page_size=14)
+        df = pd.DataFrame(data)
+
+        schema = {
+            "Ngay": "Ngày giao dịch",
+            "KLGDRong": "Khối lượng giao dịch ròng (mua trừ bán)",
+            "GTDGRong": "Giá trị giao dịch ròng (tỷ đồng, mua trừ bán)",
+            "ThayDoi": "Biến động giá cổ phiếu trong ngày (%)",
+            "KLMua": "Tổng khối lượng mua của khối ngoại",
+            "GtMua": "Tổng giá trị mua của khối ngoại (tỷ đồng)",
+            "KLBan": "Tổng khối lượng bán của khối ngoại",
+            "GtBan": "Tổng giá trị bán của khối ngoại (tỷ đồng)",
+            "RoomConLai": "Tỷ lệ room ngoại còn lại có thể mua (%)",
+            "DangSoHuu": "Tỷ lệ sở hữu hiện tại của khối ngoại (%)"
+            }
+        
+        df_json = df.to_json(orient="records", force_ascii=False)
+        df = json.dumps({
+            "schema": schema,
+            "records": json.loads(df_json)
+        }, indent=2, ensure_ascii=False)
+
+        yield f"data: {json.dumps({'type': 'status', 'message': 'Dữ liệu khớp lệnh đã sẵn sàng...', 'progress': 50})}\n\n"
+
+        # Bước 2: Tạo prompt cho phân tích
+        prompt = f"""
+        Bạn là chuyên gia phân tích tài chính chuyên nghiệp. 
+        Hãy đánh giá chi tiết và chính xác mã cổ phiếu dựa trên dữ liệu giao dịch khối ngoại quốc dưới đây.
+        Đưa ra các nhận định chuyên môn, giả thuyết hợp lý có cơ sở.
+        Dữ liệu giao dịch khối ngoại quốc:
+        {df}
+
+        Yêu cầu:
+        - Trả lời cực kì KHÁCH QUAN mang tính chuyên môn cao.
+        - Đọc hiểu số liệu đã cung cấp thật chuyên sâu.
+        - Phân tích hành vi giao dịch của khối ngoại.
+        - Đánh giá xu hướng niềm tin và tác động tới giá cổ phiếu.
+        - Đưa ra giả thuyết hợp lý, sáng tạo, có chiều sâu.
+        - Không giải thích lại yêu cầu, không thêm lời mở đầu hoặc kết luận ngoài phân tích chính.
+        """
+
+        yield f"data: {json.dumps({'type': 'status', 'message': 'Đang phân tích dữ liệu khối ngoại...'})}\n\n"
+
+        # Bước 3: Gọi mô hình Generative AI
+        try:
+            model = genai.GenerativeModel('gemini-2.5-flash')
+            async for chunk in generate_with_heartbeat(model, prompt, section_name="foreign_trading_analysis"):
+                yield chunk
+        except Exception:
+            yield f"data: {json.dumps({'type': 'error', 'section': 'foreign_trading_analysis', 'message': 'Lỗi trong quá trình phân tích'})}\n\n"
+
+        yield f"data: {json.dumps({'type': 'section_end', 'section': 'foreign_trading_analysis'})}\n\n"
+        yield f"data: {json.dumps({'type': 'complete', 'message': 'Phân tích giao dịch khối ngoại hoàn tất!', 'progress': 100})}\n\n"
+        
+    except Exception:
+        yield f"data: {json.dumps({'type': 'error', 'message': f'Lỗi hệ thống trong phân tích giao dịch khối ngoại'})}\n\n"
+
+async def get_shareholder_trading_analysis_streaming(ticker: str):
+    """
+    Shareholder trading analysis phase separated from get_insights_streaming.
+    Returns a generator that yields Server-Sent Events formatted data.
+    """
+    try:
+        # Phase 5: Shareholder Trading Analysis
+        yield f"data: {json.dumps({'type': 'status', 'message': 'Đang phân tích giao dịch cổ đông...', 'progress': 10})}\n\n"
+        yield f"data: {json.dumps({'type': 'section_start', 'section': 'shareholder_trading_analysis', 'title': 'Phân Tích Giao Dịch Cổ Đông Nội Bộ'})}\n\n"
+        # Bước 1: Lấy dữ liệu khớp lệnh
+        data = get_shareholder_data(symbol=ticker, start_date=None, end_date=None, page_index=1, page_size=14)
+        df = pd.DataFrame(data)
+        df.drop(columns=['ShareHolderCode', 'HolderID'], inplace=True)
+
+        schema = {
+            "Stock": "Mã cổ phiếu",
+            "TransactionMan": "Người thực hiện giao dịch (cổ đông hoặc tổ chức)",
+            "TransactionManPosition": "Chức vụ của người giao dịch trong công ty",
+            "RelatedMan": "Người hoặc tổ chức có liên quan đến người giao dịch",
+            "RelatedManPosition": "Chức vụ của người liên quan (nếu có)",
+            "VolumeBeforeTransaction": "Số lượng cổ phiếu nắm giữ trước giao dịch",
+            "PlanBuyVolume": "Số lượng cổ phiếu dự kiến mua",
+            "PlanSellVolume": "Số lượng cổ phiếu dự kiến bán",
+            "PlanBeginDate": "Ngày bắt đầu kế hoạch giao dịch",
+            "PlanEndDate": "Ngày kết thúc kế hoạch giao dịch",
+            "RealBuyVolume": "Số lượng cổ phiếu thực tế đã mua",
+            "RealSellVolume": "Số lượng cổ phiếu thực tế đã bán",
+            "RealEndDate": "Ngày hoàn tất giao dịch thực tế",
+            "PublishedDate": "Ngày công bố thông tin giao dịch",
+            "VolumeAfterTransaction": "Số lượng cổ phiếu còn lại sau giao dịch",
+            "TransactionNote": "Ghi chú hoặc mục đích giao dịch (nếu có)",
+            "TyLeSoHuu": "Tỷ lệ sở hữu cổ phần sau giao dịch (%)",
+            "OrderDate": "Ngày đặt lệnh giao dịch"
+            }
+        
+        df_json = df.to_json(orient="records", force_ascii=False)
+        df = json.dumps({
+            "schema": schema,
+            "records": json.loads(df_json)
+        }, indent=2, ensure_ascii=False)
+
+        yield f"data: {json.dumps({'type': 'status', 'message': 'Dữ liệu khớp lệnh đã sẵn sàng...', 'progress': 50})}\n\n"
+
+        # Bước 2: Tạo prompt cho phân tích
+        prompt = f"""
+        Bạn là chuyên gia phân tích tài chính chuyên nghiệp. 
+        Hãy đánh giá chi tiết và chính xác mã cổ phiếu dựa trên dữ liệu giao dịch cổ đông nội bộ dưới đây.
+        Đưa ra các nhận định chuyên môn, giả thuyết hợp lý có cơ sở.
+        Dữ liệu giao dịch giữa cổ đông của công ty:
+        {df}
+
+        Yêu cầu:
+        - Trả lời cực kì KHÁCH QUAN mang tính chuyên môn cao.
+        - Đọc hiểu số liệu đã cung cấp thật chuyên sâu.
+        - Phân tích hành vi giao dịch của cổ đông nội bộ.
+        - Đánh giá xu hướng niềm tin và tác động tới giá cổ phiếu.
+        - Đưa ra giả thuyết hợp lý, sáng tạo, có chiều sâu.
+        - Không giải thích lại yêu cầu, không thêm lời mở đầu hoặc kết luận ngoài phân tích chính.
+        """
+
+        yield f"data: {json.dumps({'type': 'status', 'message': 'Đang phân tích dữ liệu giao dịch cổ đông...'})}\n\n"
+
+        # Bước 3: Gọi mô hình Generative AI
+        try:
+            model = genai.GenerativeModel('gemini-2.5-flash')
+            async for chunk in generate_with_heartbeat(model, prompt, section_name="shareholder_trading_analysis"):
+                yield chunk
+        except Exception:
+            yield f"data: {json.dumps({'type': 'error', 'section': 'shareholder_trading_analysis', 'message': 'Lỗi trong quá trình phân tích'})}\n\n"
+
+        yield f"data: {json.dumps({'type': 'section_end', 'section': 'shareholder_trading_analysis'})}\n\n"
+        yield f"data: {json.dumps({'type': 'complete', 'message': 'Phân tích giao dịch cổ đông hoàn tất!', 'progress': 100})}\n\n"
+        
+    except Exception:
+        yield f"data: {json.dumps({'type': 'error', 'message': f'Lỗi hệ thống trong phân tích giao dịch cổ đông'})}\n\n"
 
 def fetch_news_streaming(
     symbol: str,
