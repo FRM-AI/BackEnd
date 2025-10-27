@@ -337,7 +337,243 @@ POST /api/packages/{user_package_id}/cancel
 
 ---
 
-## 🔔 Notification Management
+## � Insights History Management
+
+### Insights History Endpoints
+
+Hệ thống lưu trữ lịch sử phân tích insights của người dùng với giới hạn 10 phân tích gần nhất cho mỗi loại phân tích. Dữ liệu được lưu trong Supabase và tự động xóa phân tích cũ nhất khi vượt quá giới hạn.
+
+#### 1. Lấy lịch sử phân tích (/api/insights-history để lấy toàn bộ lịch sử)
+```http
+GET /api/insights-history?limit=50&offset=0&analysis_type=technical_analysis&ticker=VCB
+```
+
+**Headers:** Session cookie (automatic)
+
+**Query Parameters:**
+- `limit` (int, optional): Số lượng kết quả tối đa (default: 50)
+- `offset` (int, optional): Vị trí bắt đầu (default: 0)
+- `analysis_type` (string, optional): Lọc theo loại phân tích
+  - `technical_analysis`: Phân tích kỹ thuật
+  - `news_analysis`: Phân tích tin tức
+  - `proprietary_trading_analysis`: Phân tích giao dịch tự doanh
+  - `foreign_trading_analysis`: Phân tích giao dịch khối ngoại
+  - `shareholder_trading_analysis`: Phân tích giao dịch cổ đông
+  - `intraday_match_analysis`: Phân tích khớp lệnh trong phiên
+- `ticker` (string, optional): Lọc theo mã cổ phiếu (VD: VCB, BID)
+
+**Response:**
+```json
+[
+  {
+    "id": "uuid",
+    "user_id": "uuid",
+    "ticker": "VCB",
+    "asset_type": "stock",
+    "analysis_type": "technical_analysis",
+    "content": "Phân tích kỹ thuật chi tiết về cổ phiếu VCB...",
+    "metadata": {
+      "date_range": {
+        "start": "2024-01-01",
+        "end": "2024-12-31"
+      },
+      "generated_at": "2024-01-15T10:30:00Z"
+    },
+    "created_at": "2024-01-15T10:30:00Z",
+    "updated_at": "2024-01-15T10:30:00Z"
+  }
+]
+```
+
+**Features:**
+- Tự động lưu phân tích từ các streaming API
+- Giới hạn 10 phân tích gần nhất cho mỗi `analysis_type`
+- Phân tích cũ nhất tự động bị xóa khi thêm phân tích mới
+- Hỗ trợ filter theo ticker và analysis_type
+- Pagination với limit và offset
+
+#### 2. Lấy chi tiết một phân tích
+```http
+GET /api/insights-history/{insight_id}
+```
+
+**Headers:** Session cookie (automatic)
+
+**Path Parameters:**
+- `insight_id` (string, required): ID của phân tích
+
+**Response:**
+```json
+{
+  "id": "uuid",
+  "user_id": "uuid",
+  "ticker": "VCB",
+  "asset_type": "stock",
+  "analysis_type": "news_analysis",
+  "content": "Phân tích tin tức chi tiết về VCB trong 30 ngày qua...",
+  "metadata": {
+    "look_back_days": 30,
+    "generated_at": "2024-01-15T14:00:00Z"
+  },
+  "created_at": "2024-01-15T14:00:00Z",
+  "updated_at": "2024-01-15T14:00:00Z"
+}
+```
+
+**Error Response (404):**
+```json
+{
+  "detail": "Không tìm thấy phân tích"
+}
+```
+
+#### 3. Xóa một phân tích
+```http
+DELETE /api/insights-history/{insight_id}
+```
+
+**Headers:** Session cookie (automatic)
+
+**Path Parameters:**
+- `insight_id` (string, required): ID của phân tích cần xóa
+
+**Response:**
+```json
+{
+  "message": "Đã xóa phân tích thành công"
+}
+```
+
+**Error Response (404):**
+```json
+{
+  "detail": "Không tìm thấy phân tích"
+}
+```
+
+#### 4. Xóa tất cả lịch sử phân tích
+```http
+DELETE /api/insights-history
+```
+
+**Headers:** Session cookie (automatic)
+
+**Response:**
+```json
+{
+  "message": "Đã xóa 25 phân tích",
+  "count": 25
+}
+```
+
+**Features:**
+- Xóa toàn bộ lịch sử phân tích của user
+- Không thể khôi phục sau khi xóa
+- Trả về số lượng phân tích đã xóa
+
+#### 5. Lấy thống kê lịch sử phân tích
+```http
+GET /api/insights-history/stats
+```
+
+**Headers:** Session cookie (automatic)
+
+**Response:**
+```json
+{
+  "total_insights": 45,
+  "by_analysis_type": {
+    "technical_analysis": 12,
+    "news_analysis": 15,
+    "proprietary_trading_analysis": 8,
+    "foreign_trading_analysis": 5,
+    "shareholder_trading_analysis": 3,
+    "intraday_match_analysis": 2
+  },
+  "by_ticker": {
+    "VCB": 15,
+    "BID": 12,
+    "CTG": 10,
+    "TCB": 5,
+    "MBB": 3
+  },
+  "most_analyzed_ticker": {
+    "ticker": "VCB",
+    "count": 15
+  },
+  "most_used_analysis": {
+    "type": "news_analysis",
+    "count": 15
+  }
+}
+```
+
+**Features:**
+- Thống kê tổng số phân tích
+- Phân loại theo loại phân tích
+- Phân loại theo mã cổ phiếu
+- Hiển thị cổ phiếu được phân tích nhiều nhất
+- Hiển thị loại phân tích được sử dụng nhiều nhất
+
+### Cách hoạt động của Insights History
+
+1. **Tự động lưu**: Mỗi khi user thực hiện phân tích qua các streaming API, hệ thống tự động lưu kết quả vào lịch sử
+2. **Giới hạn 10 phân tích**: Mỗi `analysis_type` chỉ lưu tối đa 10 phân tích gần nhất
+3. **Auto cleanup**: Database trigger tự động xóa phân tích cũ nhất khi thêm phân tích mới
+4. **Row Level Security**: User chỉ có thể xem và quản lý phân tích của mình
+5. **Metadata linh hoạt**: Mỗi phân tích có metadata riêng (date_range, look_back_days, etc.)
+
+### Các loại phân tích được lưu
+
+| Analysis Type | Mô tả | TTL Cache |
+|---------------|-------|-----------|
+| `technical_analysis` | Phân tích kỹ thuật | 6 giờ |
+| `news_analysis` | Phân tích tin tức | 2 giờ |
+| `proprietary_trading_analysis` | Phân tích giao dịch tự doanh | 4 giờ |
+| `foreign_trading_analysis` | Phân tích giao dịch khối ngoại | 4 giờ |
+| `shareholder_trading_analysis` | Phân tích giao dịch cổ đông | 8 giờ |
+| `intraday_match_analysis` | Phân tích khớp lệnh trong phiên | 12 giờ |
+
+### Database Schema
+
+```sql
+CREATE TABLE insights_history (
+    id UUID PRIMARY KEY,
+    user_id UUID NOT NULL REFERENCES users(id),
+    ticker VARCHAR(20) NOT NULL,
+    asset_type VARCHAR(20) NOT NULL,
+    analysis_type VARCHAR(50) NOT NULL,
+    content TEXT NOT NULL,
+    metadata JSONB,
+    created_at TIMESTAMP WITH TIME ZONE,
+    updated_at TIMESTAMP WITH TIME ZONE
+);
+
+-- Indexes for performance
+CREATE INDEX idx_insights_history_user_created ON insights_history(user_id, created_at DESC);
+CREATE INDEX idx_insights_history_user_ticker_type ON insights_history(user_id, ticker, analysis_type, created_at DESC);
+```
+
+### Example Usage
+
+**Lấy tất cả phân tích :**
+```http
+GET /api/insights-history
+```
+
+**Lấy 20 phân tích tin tức gần nhất:**
+```http
+GET /api/insights-history?analysis_type=news_analysis&limit=20
+```
+
+**Xem thống kê tổng quan:**
+```http
+GET /api/insights-history/stats
+```
+
+---
+
+## �🔔 Notification Management
 
 ### Notification Endpoints
 
@@ -1113,6 +1349,11 @@ GET /api
       "/api/auth/*",
       "/api/wallet/*", 
       "/api/packages/*"
+    ],
+    "insights_history": [
+      "/api/insights-history",
+      "/api/insights-history/{insight_id}",
+      "/api/insights-history/stats"
     ]
   },
   "docs": "/docs",
@@ -1694,15 +1935,23 @@ GET /api/cafef/global-indices
 - Các API financial analysis được track sử dụng dịch vụ
 - Cần có gói dịch vụ hoặc coins để sử dụng
 - Các API có Redis cache để tăng hiệu suất:
-  - `/api/stock_data`
-  - `/api/technical_signals` 
-  - `/api/news`
+  - `/api/stock_data` (30 phút)
+  - `/api/technical_signals` (1 giờ)
+  - `/api/news` (1 giờ)
   - `/api/technical-analysis/stream` (6 giờ)
   - `/api/news-analysis/stream` (2 giờ)
   - `/api/proprietary-trading-analysis/stream` (4 giờ)
   - `/api/foreign-trading-analysis/stream` (4 giờ)
   - `/api/shareholder-trading-analysis/stream` (8 giờ)
   - `/api/intraday_match_analysis` (12 giờ)
+
+### Insights History
+- Tất cả phân tích từ streaming APIs tự động được lưu vào Supabase
+- Giới hạn 10 phân tích gần nhất cho mỗi loại phân tích (`analysis_type`)
+- Database trigger tự động xóa phân tích cũ nhất khi vượt quá giới hạn
+- Row Level Security (RLS) đảm bảo user chỉ truy cập phân tích của mình
+- Metadata được lưu linh hoạt theo từng loại phân tích
+- Hỗ trợ filter, pagination, và thống kê chi tiết
 
 ### Authentication Levels
 1. **Public**: Không cần authentication

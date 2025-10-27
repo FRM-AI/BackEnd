@@ -107,6 +107,9 @@ from notification_manager import (
     BulkNotificationCreate
 )
 from database import database_manager
+from insights_history_manager import (
+    insights_history_manager, InsightHistory, InsightHistoryCreate
+)
 
 from data_loader import load_stock_data_vn, load_stock_data_vnquant, load_stock_data_yf, load_stock_data_cached, get_stock_data_for_api
 from feature_engineering import add_technical_indicators_vnquant, add_technical_indicators_yf
@@ -949,6 +952,87 @@ async def delete_user_account(current_user: UserWithWallet = Depends(get_current
         return {"message": "Tài khoản đã được xóa thành công"}
     else:
         raise HTTPException(status_code=500, detail="Lỗi khi xóa tài khoản")
+
+# ================================
+# INSIGHTS HISTORY ROUTES
+# ================================
+
+@app.get("/api/insights-history", response_model=List[InsightHistory])
+async def get_insights_history(
+    limit: int = 50,
+    offset: int = 0,
+    analysis_type: Optional[str] = None,
+    ticker: Optional[str] = None,
+    current_user: UserWithWallet = Depends(get_current_user)
+):
+    """
+    Lấy lịch sử phân tích insights của user
+    
+    - **limit**: Số lượng kết quả tối đa (default: 50)
+    - **offset**: Vị trí bắt đầu (default: 0)
+    - **analysis_type**: Lọc theo loại phân tích (technical_analysis, news_analysis, etc.)
+    - **ticker**: Lọc theo mã cổ phiếu
+    """
+    return await insights_history_manager.get_user_insights(
+        user_id=current_user.id,
+        limit=limit,
+        offset=offset,
+        analysis_type=analysis_type,
+        ticker=ticker
+    )
+
+@app.get("/api/insights-history/{insight_id}", response_model=InsightHistory)
+async def get_insight_detail(
+    insight_id: str,
+    current_user: UserWithWallet = Depends(get_current_user)
+):
+    """
+    Lấy chi tiết một phân tích theo ID
+    """
+    insight = await insights_history_manager.get_insight_by_id(
+        user_id=current_user.id,
+        insight_id=insight_id
+    )
+    
+    if not insight:
+        raise HTTPException(status_code=404, detail="Không tìm thấy phân tích")
+    
+    return insight
+
+@app.delete("/api/insights-history/{insight_id}")
+async def delete_insight(
+    insight_id: str,
+    current_user: UserWithWallet = Depends(get_current_user)
+):
+    """
+    Xóa một phân tích
+    """
+    return await insights_history_manager.delete_insight(
+        user_id=current_user.id,
+        insight_id=insight_id
+    )
+
+@app.delete("/api/insights-history")
+async def delete_all_insights(
+    current_user: UserWithWallet = Depends(get_current_user)
+):
+    """
+    Xóa tất cả lịch sử phân tích
+    """
+    return await insights_history_manager.delete_all_user_insights(
+        user_id=current_user.id
+    )
+
+@app.get("/api/insights-history/stats")
+async def get_insights_stats(
+    current_user: UserWithWallet = Depends(get_current_user)
+):
+    """
+    Lấy thống kê lịch sử phân tích
+    """
+    return await insights_history_manager.get_insights_stats(
+        user_id=current_user.id
+    )
     
 # ================================
 # ENHANCED FINANCIAL ANALYSIS API ROUTES
@@ -1232,7 +1316,7 @@ async def get_fundamental_score(
         raise HTTPException(status_code=500, detail="Server xử lý lỗi. Vui lòng thử lại.")
 
 @app.post("/api/news")
-@check_balance_and_track_streaming("news_analysis")
+@check_balance_and_track_streaming("get_news")
 async def get_news(
     request_data: NewsRequest,
     current_user: Optional[UserWithWallet] = Depends(get_optional_user),
@@ -1550,7 +1634,7 @@ async def optimize_portfolio_api(
         raise HTTPException(status_code=500, detail="Server xử lý lỗi. Vui lòng thử lại.")
 
 @app.post("/api/calculate_manual_portfolio")
-@check_balance_and_track("portfolio_optimization")
+@check_balance_and_track("calculate_portfolio")
 async def calculate_manual_portfolio_api(
     request_data: ManualPortfolioRequest,
     current_user: Optional[UserWithWallet] = Depends(get_optional_user),
@@ -1592,7 +1676,6 @@ async def calculate_manual_portfolio_api(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail="Server xử lý lỗi. Vui lòng thử lại.")
-    
     
 @app.post("/api/technical-analysis/stream")
 @check_balance_and_track_streaming("technical_analysis")
@@ -1687,6 +1770,26 @@ async def get_technical_analysis_stream_api(
                 logger.info(f"Cached technical analysis for {request_data.ticker}")
             except Exception as cache_err:
                 logger.warning(f"Failed to cache technical analysis: {cache_err}")
+            
+            # Save to insights history if user is authenticated
+            if current_user and analysis_content:
+                try:
+                    await insights_history_manager.save_insight(
+                        user_id=current_user.id,
+                        insight_data=InsightHistoryCreate(
+                            ticker=request_data.ticker.upper(),
+                            asset_type=request_data.asset_type,
+                            analysis_type='technical_analysis',
+                            content=analysis_content,
+                            metadata={
+                                'date_range': {'start': start_date, 'end': end_date},
+                                'generated_at': datetime.now().isoformat()
+                            }
+                        )
+                    )
+                    logger.info(f"Saved technical analysis to history for user {current_user.id}")
+                except Exception as save_err:
+                    logger.error(f"Failed to save technical analysis to history: {save_err}")
                 
         except Exception:
             yield f"data: {{\"type\": \"error\", \"message\": \"Server xử lý lỗi. Vui lòng thử lại.\"}}\n\n"
@@ -1703,7 +1806,7 @@ async def get_technical_analysis_stream_api(
     )
 
 @app.post("/api/news-analysis/stream")
-@check_balance_and_track_streaming("ai_insights") 
+@check_balance_and_track_streaming("news_analysis") 
 async def get_news_analysis_stream_api(
     request_data: InsightsRequest,
     current_user: Optional[UserWithWallet] = Depends(get_optional_user),
@@ -1793,6 +1896,26 @@ async def get_news_analysis_stream_api(
             except Exception as cache_err:
                 logger.warning(f"Failed to cache news analysis: {cache_err}")
                 
+            # Save to insights history if user is authenticated
+            if current_user and analysis_content:
+                try:
+                    await insights_history_manager.save_insight(
+                        user_id=current_user.id,
+                        insight_data=InsightHistoryCreate(
+                            ticker=request_data.ticker.upper(),
+                            asset_type=request_data.asset_type,
+                            analysis_type='news_analysis',
+                            content=analysis_content,
+                            metadata={
+                                'look_back_days': request_data.look_back_days,
+                                'generated_at': datetime.now().isoformat()
+                            }
+                        )
+                    )
+                    logger.info(f"Saved news analysis to history for user {current_user.id}")
+                except Exception as save_err:
+                    logger.error(f"Failed to save news analysis to history: {save_err}")
+                
         except Exception:
             yield f"data: {{\"type\": \"error\", \"message\": \"Server xử lý lỗi. Vui lòng thử lại.\"}}\n\n"
     
@@ -1808,7 +1931,7 @@ async def get_news_analysis_stream_api(
     )
 
 @app.post("/api/proprietary-trading-analysis/stream")
-@check_balance_and_track_streaming("ai_insights")
+@check_balance_and_track_streaming("proprietary_trading_analysis")
 async def get_proprietary_trading_analysis_stream_api(
     request_data: InsightsRequest,
     current_user: Optional[UserWithWallet] = Depends(get_optional_user),
@@ -1894,6 +2017,25 @@ async def get_proprietary_trading_analysis_stream_api(
                 logger.info(f"Cached proprietary trading analysis for {request_data.ticker}")
             except Exception as cache_err:
                 logger.warning(f"Failed to cache proprietary trading analysis: {cache_err}")
+            
+            # Save to insights history if user is authenticated
+            if current_user and analysis_content:
+                try:
+                    await insights_history_manager.save_insight(
+                        user_id=current_user.id,
+                        insight_data=InsightHistoryCreate(
+                            ticker=request_data.ticker.upper(),
+                            asset_type='stock',
+                            analysis_type='proprietary_trading_analysis',
+                            content=analysis_content,
+                            metadata={
+                                'generated_at': datetime.now().isoformat()
+                            }
+                        )
+                    )
+                    logger.info(f"Saved proprietary trading analysis to history for user {current_user.id}")
+                except Exception as save_err:
+                    logger.error(f"Failed to save proprietary trading analysis to history: {save_err}")
                 
         except Exception:
             yield f"data: {{\"type\": \"error\", \"message\": \"Server xử lý lỗi. Vui lòng thử lại.\"}}\n\n"
@@ -1910,7 +2052,7 @@ async def get_proprietary_trading_analysis_stream_api(
     )
 
 @app.post("/api/foreign-trading-analysis/stream")
-@check_balance_and_track_streaming("ai_insights")
+@check_balance_and_track_streaming("foreign_trading_analysis")
 async def get_foreign_trading_analysis_stream_api(
     request_data: InsightsRequest,
     current_user: Optional[UserWithWallet] = Depends(get_optional_user),
@@ -1996,6 +2138,25 @@ async def get_foreign_trading_analysis_stream_api(
                 logger.info(f"Cached foreign trading analysis for {request_data.ticker}")
             except Exception as cache_err:
                 logger.warning(f"Failed to cache foreign trading analysis: {cache_err}")
+            
+            # Save to insights history if user is authenticated
+            if current_user and analysis_content:
+                try:
+                    await insights_history_manager.save_insight(
+                        user_id=current_user.id,
+                        insight_data=InsightHistoryCreate(
+                            ticker=request_data.ticker.upper(),
+                            asset_type='stock',
+                            analysis_type='foreign_trading_analysis',
+                            content=analysis_content,
+                            metadata={
+                                'generated_at': datetime.now().isoformat()
+                            }
+                        )
+                    )
+                    logger.info(f"Saved foreign trading analysis to history for user {current_user.id}")
+                except Exception as save_err:
+                    logger.error(f"Failed to save foreign trading analysis to history: {save_err}")
                 
         except Exception:
             yield f"data: {{\"type\": \"error\", \"message\": \"Server xử lý lỗi. Vui lòng thử lại.\"}}\n\n"
@@ -2012,7 +2173,7 @@ async def get_foreign_trading_analysis_stream_api(
     )
 
 @app.post("/api/shareholder-trading-analysis/stream")
-@check_balance_and_track_streaming("ai_insights")
+@check_balance_and_track_streaming("shareholder_trading_analysis")
 async def get_shareholder_trading_analysis_stream_api(
     request_data: InsightsRequest,
     current_user: Optional[UserWithWallet] = Depends(get_optional_user),
@@ -2098,6 +2259,25 @@ async def get_shareholder_trading_analysis_stream_api(
                 logger.info(f"Cached shareholder trading analysis for {request_data.ticker}")
             except Exception as cache_err:
                 logger.warning(f"Failed to cache shareholder trading analysis: {cache_err}")
+            
+            # Save to insights history if user is authenticated
+            if current_user and analysis_content:
+                try:
+                    await insights_history_manager.save_insight(
+                        user_id=current_user.id,
+                        insight_data=InsightHistoryCreate(
+                            ticker=request_data.ticker.upper(),
+                            asset_type='stock',
+                            analysis_type='shareholder_trading_analysis',
+                            content=analysis_content,
+                            metadata={
+                                'generated_at': datetime.now().isoformat()
+                            }
+                        )
+                    )
+                    logger.info(f"Saved shareholder trading analysis to history for user {current_user.id}")
+                except Exception as save_err:
+                    logger.error(f"Failed to save shareholder trading analysis to history: {save_err}")
                 
         except Exception:
             yield f"data: {{\"type\": \"error\", \"message\": \"Server xử lý lỗi. Vui lòng thử lại.\"}}\n\n"
@@ -2114,7 +2294,7 @@ async def get_shareholder_trading_analysis_stream_api(
     )
 
 @app.post("/api/intraday_match_analysis")
-@check_balance_and_track_streaming("ai_insights")
+@check_balance_and_track_streaming("intraday_match_analysis")
 async def get_intraday_match_analysis_api(
     ticker: str = Query(..., description="Mã cổ phiếu"),
     date: str = Query(..., description="Ngày phân tích (YYYY-MM-DD hoặc YYYYMMDD)"),
@@ -2195,6 +2375,26 @@ async def get_intraday_match_analysis_api(
                     logger.info(f"Cached intraday analysis for {ticker} on {date}")
                 except Exception as cache_err:
                     logger.warning(f"Failed to cache intraday analysis: {cache_err}")
+                
+                # Save to insights history if user is authenticated
+                if current_user and analysis_content:
+                    try:
+                        await insights_history_manager.save_insight(
+                            user_id=current_user.id,
+                            insight_data=InsightHistoryCreate(
+                                ticker=ticker.upper(),
+                                asset_type='stock',
+                                analysis_type='intraday_match_analysis',
+                                content=analysis_content,
+                                metadata={
+                                    'date': date,
+                                    'generated_at': datetime.now().isoformat()
+                                }
+                            )
+                        )
+                        logger.info(f"Saved intraday match analysis to history for user {current_user.id}")
+                    except Exception as save_err:
+                        logger.error(f"Failed to save intraday match analysis to history: {save_err}")
                     
             except Exception as e:
                 yield f"data: {json.dumps({'type': 'error', 'message': f'Lỗi phân tích: {e}'})}\n\n"
