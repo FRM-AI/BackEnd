@@ -1216,7 +1216,7 @@ async def get_stock_data(
         )
 
 @app.post("/api/technical_signals")
-@check_balance_and_track("technical_analysis")
+@check_balance_and_track("technical_signals")
 async def get_technical_signals(
     request_data: TechnicalSignalsRequest,
     current_user: Optional[UserWithWallet] = Depends(get_optional_user),
