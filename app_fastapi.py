@@ -1224,23 +1224,23 @@ async def get_technical_signals(
 ):
     """Phát hiện tín hiệu kỹ thuật với Redis cache"""
     try:
-        # Create cache key for technical signals
-        cache_key = f"technical_signals:{request_data.symbol.upper()}:{request_data.asset_type}"
+        # # Create cache key for technical signals
+        # cache_key = f"technical_signals:{request_data.symbol.upper()}:{request_data.asset_type}"
         
-        try:
-            # Try to get cached signals from Redis
-            redis_manager = get_redis_manager()
-            cached_signals = await redis_manager.get_json(cache_key)
+        # try:
+        #     # Try to get cached signals from Redis
+        #     redis_manager = get_redis_manager()
+        #     cached_signals = await redis_manager.get_json(cache_key)
             
-            if cached_signals:
-                logger.info(f"Returning cached technical signals for {request_data.symbol}")
-                cached_signals['from_cache'] = True
-                cached_signals['cached_at'] = cached_signals.get('generated_at', datetime.now().isoformat())
-                cached_signals['generated_at'] = datetime.now().isoformat()
-                return cached_signals
+        #     if cached_signals:
+        #         logger.info(f"Returning cached technical signals for {request_data.symbol}")
+        #         cached_signals['from_cache'] = True
+        #         cached_signals['cached_at'] = cached_signals.get('generated_at', datetime.now().isoformat())
+        #         cached_signals['generated_at'] = datetime.now().isoformat()
+        #         return cached_signals
                 
-        except Exception as cache_err:
-            logger.warning(f"Cache error for technical signals: {cache_err}")
+        # except Exception as cache_err:
+        #     logger.warning(f"Cache error for technical signals: {cache_err}")
         
         # Load and analyze data using cached function
         df = load_stock_data_cached(request_data.symbol, request_data.asset_type)
@@ -1271,13 +1271,13 @@ async def get_technical_signals(
             'from_cache': False
         }
         
-        # Cache the results for 6 hours
-        try:
-            redis_manager = get_redis_manager()
-            await redis_manager.set_json(cache_key, result, expire=21600)  # 6 hours
-            logger.info(f"Cached technical signals for {request_data.symbol}")
-        except Exception as cache_err:
-            logger.warning(f"Failed to cache technical signals: {cache_err}")
+        # # Cache the results for 6 hours
+        # try:
+        #     redis_manager = get_redis_manager()
+        #     await redis_manager.set_json(cache_key, result, expire=21600)  # 6 hours
+        #     logger.info(f"Cached technical signals for {request_data.symbol}")
+        # except Exception as cache_err:
+        #     logger.warning(f"Failed to cache technical signals: {cache_err}")
         
         return result
     except Exception as e:
