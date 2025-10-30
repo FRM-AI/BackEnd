@@ -44,13 +44,24 @@ STATIC_DIR = CURRENT_DIR / "static"
 
 # Configure comprehensive logging
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.WARNING,  # Changed from INFO to WARNING to reduce console output
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
         logging.FileHandler('frm_ai.log'),
         logging.StreamHandler()
     ]
 )
+
+# Configure uvicorn and other third-party loggers to reduce noise
+logging.getLogger("uvicorn.access").setLevel(logging.ERROR)  # Suppress HTTP request logs
+logging.getLogger("uvicorn").setLevel(logging.WARNING)
+logging.getLogger("fastapi").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+
+# Disable access logs completely for production
+logging.getLogger("uvicorn.access").disabled = True
+
 logger = logging.getLogger(__name__)
 
 # Performance monitoring
@@ -82,8 +93,8 @@ if not TEMPLATES_DIR.exists():
     # Fallback to relative path
     TEMPLATES_DIR = Path("templates")
 
-logger.info(f"Templates directory: {TEMPLATES_DIR.absolute()}")
-logger.info(f"Templates directory exists: {TEMPLATES_DIR.exists()}")
+logger.debug(f"Templates directory: {TEMPLATES_DIR.absolute()}")
+logger.debug(f"Templates directory exists: {TEMPLATES_DIR.exists()}")
 
 # Add the additionalModules to the path
 sys.path.append(os.path.join(os.path.dirname(__file__), 'additionalModules'))
@@ -1419,7 +1430,7 @@ async def get_news(
                 final_news_data = None
                 
                 # Generate streaming news and collect final data
-                for chunk in fetch_news_streaming(
+                async for chunk in fetch_news_streaming(
                     symbol=request_data.symbol.upper(),
                     asset_type=request_data.asset_type,
                     look_back_days=request_data.look_back_days,
@@ -1447,7 +1458,7 @@ async def get_news(
                     try:
                         redis_manager = get_redis_manager()
                         await redis_manager.set_json(cache_key, final_news_data, expire=21600)  # 6 hours
-                        logger.info(f"Cached news for {request_data.symbol}")
+                        logger.debug(f"Cached news for {request_data.symbol}")
                     except Exception as cache_err:
                         logger.warning(f"Failed to cache news: {cache_err}")
                     

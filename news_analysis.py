@@ -944,7 +944,7 @@ async def get_shareholder_trading_analysis_streaming(ticker: str):
     except Exception:
         yield f"data: {json.dumps({'type': 'error', 'message': f'Lỗi hệ thống trong phân tích giao dịch cổ đông'})}\n\n"
 
-def fetch_news_streaming(
+async def fetch_news_streaming(
     symbol: str,
     asset_type: str = 'stock',
     look_back_days: int = 30,
@@ -957,9 +957,16 @@ def fetch_news_streaming(
     Returns a generator that yields Server-Sent Events formatted data.
     """
     import json
+    import asyncio
+    import time
     from datetime import datetime, timedelta
     
     symbol = symbol.upper().strip()
+    
+    async def send_heartbeat_during_operation(operation_name: str, progress: int = 0):
+        """Send heartbeat during long operations"""
+        yield f"data: {json.dumps({'type': 'status', 'message': f'🤖 Đang {operation_name}...', 'progress': progress, 'heartbeat': True})}\n\n"
+        await asyncio.sleep(0.1)
     
     try:
         # Initialize news aggregation
@@ -985,8 +992,8 @@ def fetch_news_streaming(
         # (universal source)
         if 'google' in news_sources:
             try:
-                yield f"data: {json.dumps({'type': 'status', 'message': 'Đang tìm kiếm trên...', 'progress': 20})}\n\n"
-                message = f'🔍 **Đang tìm kiếm tin tức về {symbol} trên...**\n\n'
+                yield f"data: {json.dumps({'type': 'status', 'message': 'Đang tìm kiếm trên Google News...', 'progress': 20})}\n\n"
+                message = f'🔍 **Đang tìm kiếm tin tức về {symbol} trên Google News...**\n\n'
                 yield f"data: {json.dumps({'type': 'content', 'section': 'news_collection', 'text': message})}\n\n"
 
                 # Create search query based on stock type
@@ -997,6 +1004,10 @@ def fetch_news_streaming(
                 elif asset_type == 'crypto':
                     search_query = f"Important news for crypto currencies ticket {symbol}"
 
+                # Add heartbeat before long operation
+                async for heartbeat in send_heartbeat_during_operation("Tìm kiếm tin tức", 25):
+                    yield heartbeat
+
                 google_news = fetch_google_news(
                     search_query,
                     datetime.now().strftime('%Y-%m-%d'),
@@ -1006,14 +1017,18 @@ def fetch_news_streaming(
                 if google_news:
                     yield f"data: {json.dumps({'type': 'status', 'message': 'Đang xử lý kết quả...', 'progress': 40})}\n\n"
                     
-                    # Parse format
+                    # Parse format with heartbeat
+                    async for heartbeat in send_heartbeat_during_operation("Phân tích cú pháp tin tức", 42):
+                        yield heartbeat
+                    
                     from app_fastapi import parse_google_news_format
                     google_articles = parse_google_news_format(google_news, 'Google News')
                     
-                    message = f'✅ **Tìm thấy {len(google_articles)} bài viết từ**\n\n'
+                    message = f'✅ **Tìm thấy {len(google_articles)} bài viết từ Google News**\n\n'
                     yield f"data: {json.dumps({'type': 'content', 'section': 'news_collection', 'text': message})}\n\n"
 
-                    # Stream individual articles
+                    # Stream individual articles with heartbeat
+                    total_articles = len(google_articles[:max_results//2])
                     for i, article in enumerate(google_articles[:max_results//2]):
                         aggregated_news.append(article)
                         
@@ -1025,31 +1040,33 @@ def fetch_news_streaming(
                         yield f"data: {json.dumps({'type': 'content', 'section': 'news_collection', 'text': article_text})}\n\n"
                         
                         # Update progress
-                        progress = min(40 + (i / len(google_articles[:max_results//2])) * 30, 70)
-                        yield f"data: {json.dumps({'type': 'status', 'message': f'Đã xử lý {i+1}/{len(google_articles[:max_results//2])} bài viết...', 'progress': progress})}\n\n"
+                        progress = min(40 + (i / total_articles) * 30, 70)
+                        yield f"data: {json.dumps({'type': 'status', 'message': f'Đã xử lý {i+1}/{total_articles} bài viết...', 'progress': progress})}\n\n"
                         
-                        # Small delay for streaming effect
-                        import asyncio
-                        import time
-                        time.sleep(0.1)
+                        # Small delay for streaming effect with async support
+                        await asyncio.sleep(0.1)
                     
                     news_stats['sources_used'].append('google')
                     
                 else:
-                    message = '⚠️ **Không tìm thấy tin tức từ**\\n\\n'
+                    message = '⚠️ **Không tìm thấy tin tức từ Google News**\\n\\n'
                     yield f"data: {json.dumps({'type': 'content', 'section': 'news_collection', 'text': message})}\n\n"
                     
             except Exception as e:
                 error_msg = f"❌ **Lỗi khi tìm kiếm:** {str(e)}\\n\\n"
                 yield f"data: {json.dumps({'type': 'content', 'section': 'news_collection', 'text': error_msg})}\n\n"
         
-        # Process and enhance news
+        # Process and enhance news with heartbeat
         yield f"data: {json.dumps({'type': 'status', 'message': 'Đang xử lý và phân tích tin tức...', 'progress': 75})}\n\n"
         
-        # Remove duplicates based on title similarity
+        # Remove duplicates based on title similarity with heartbeat
         if aggregated_news:
             message = '🔄 **Đang loại bỏ tin tức trùng lặp...**\\n\\n'
             yield f"data: {json.dumps({'type': 'content', 'section': 'news_collection', 'text': message})}\n\n"
+            
+            # Add heartbeat for duplicate removal
+            async for heartbeat in send_heartbeat_during_operation("Loại bỏ tin tức trùng lặp", 77):
+                yield heartbeat
             
             from app_fastapi import remove_duplicate_news
             original_count = len(aggregated_news)
@@ -1060,10 +1077,14 @@ def fetch_news_streaming(
                 message = f'✅ **Đã loại bỏ {removed_count} tin tức trùng lặp**\\n\\n'
                 yield f"data: {json.dumps({'type': 'content', 'section': 'news_collection', 'text': message})}\n\n"
         
-        # Add sentiment analysis
+        # Add sentiment analysis with heartbeat
         if aggregated_news:
             message = '🧠 **Đang phân tích cảm xúc tin tức...**\\n\\n'
             yield f"data: {json.dumps({'type': 'content', 'section': 'news_collection', 'text': message})}\n\n"
+            
+            # Add heartbeat for sentiment analysis
+            async for heartbeat in send_heartbeat_during_operation("Phân tích cảm xúc tin tức", 80):
+                yield heartbeat
             
             from app_fastapi import enhance_news_with_sentiment
             aggregated_news = enhance_news_with_sentiment(aggregated_news)
@@ -1080,8 +1101,10 @@ def fetch_news_streaming(
             
             yield f"data: {json.dumps({'type': 'content', 'section': 'news_collection', 'text': sentiment_text})}\n\n"
         
-        # Sort by relevance score and date
+        # Sort by relevance score and date with heartbeat
         if aggregated_news:
+            async for heartbeat in send_heartbeat_during_operation("Sắp xếp tin tức theo độ liên quan", 85):
+                yield heartbeat
             aggregated_news.sort(key=lambda x: x.get('relevance_score', 0), reverse=True)
         
         # Limit results
@@ -1098,9 +1121,10 @@ def fetch_news_streaming(
         yield f"data: {json.dumps({'type': 'status', 'message': 'Đang chuẩn bị kết quả...', 'progress': 90})}\n\n"
         yield f"data: {json.dumps({'type': 'section_start', 'section': 'news_results', 'title': f'Kết Quả Tin Tức - {len(aggregated_news)} bài viết'})}\n\n"
         
-        # Stream final results
+        # Stream final results with heartbeat for large datasets
         if aggregated_news:
-            for news in aggregated_news:
+            total_news = len(aggregated_news)
+            for i, news in enumerate(aggregated_news):
                 news_data = {
                     'id': news.get('id', ''),
                     'title': news.get('title', 'No title'),
@@ -1113,6 +1137,15 @@ def fetch_news_streaming(
                 }
                 
                 yield f"data: {json.dumps({'type': 'news_item', 'section': 'news_results', 'data': news_data})}\n\n"
+                
+                # Add heartbeat every 10 items for large datasets
+                if total_news > 20 and (i + 1) % 10 == 0:
+                    progress = 90 + ((i + 1) / total_news) * 8
+                    async for heartbeat in send_heartbeat_during_operation(f"Đang truyền tin tức ({i+1}/{total_news})", int(progress)):
+                        yield heartbeat
+                
+                # Small delay for streaming effect
+                await asyncio.sleep(0.05)
         else:
             message = '⚠️ **Không tìm thấy tin tức nào phù hợp.**\\n\\n'
             yield f"data: {json.dumps({'type': 'content', 'section': 'news_results', 'text': message})}\n\n"
@@ -1120,7 +1153,10 @@ def fetch_news_streaming(
         # End news results section
         yield f"data: {json.dumps({'type': 'section_end', 'section': 'news_results'})}\n\n"
         
-        # Final response data
+        # Final response data with heartbeat
+        async for heartbeat in send_heartbeat_during_operation("Chuẩn bị dữ liệu cuối cùng", 98):
+            yield heartbeat
+            
         final_response = {
             'status': 'success',
             'data': aggregated_news,
@@ -1140,7 +1176,6 @@ def fetch_news_streaming(
         
         # Send final data
         yield f"data: {json.dumps({'type': 'final_data', 'data': final_response})}\n\n"
-        print(final_response)
         
         # Completion
         yield f"data: {json.dumps({'type': 'complete', 'message': f'Hoàn tất! Tìm thấy {len(aggregated_news)} tin tức về {symbol}', 'progress': 100})}\n\n"
