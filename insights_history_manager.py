@@ -4,6 +4,7 @@ Module quản lý lịch sử phân tích insights của người dùng
 """
 
 import logging
+import re
 from typing import List, Dict, Optional, Any
 from datetime import datetime
 from pydantic import BaseModel
@@ -11,6 +12,38 @@ from supabase_config import get_supabase_client
 from fastapi import HTTPException
 
 logger = logging.getLogger(__name__)
+
+def clean_markdown_content(content: str) -> str:
+    """
+    Clean and normalize markdown content to preserve formatting
+    - Remove excessive whitespace
+    - Fix table formatting
+    - Preserve line breaks
+    """
+    if not content:
+        return content
+    
+    # Normalize line endings
+    content = content.replace('\r\n', '\n').replace('\r', '\n')
+    
+    # Remove trailing spaces from each line
+    lines = content.split('\n')
+    cleaned_lines = [line.rstrip() for line in lines]
+    
+    # Join back with single newlines
+    content = '\n'.join(cleaned_lines)
+    
+    # Remove excessive blank lines (more than 2 consecutive)
+    content = re.sub(r'\n{3,}', '\n\n', content)
+    
+    # Fix table formatting - ensure no spaces before pipe
+    content = re.sub(r' +\|', '|', content)
+    content = re.sub(r'\| +', '|', content)
+    
+    # Trim start and end
+    content = content.strip()
+    
+    return content
 
 # Pydantic Models
 class InsightHistoryCreate(BaseModel):
@@ -48,13 +81,16 @@ class InsightsHistoryManager:
         Tự động xóa phân tích cũ nhất nếu vượt quá 10 (được xử lý bởi trigger)
         """
         try:
+            # Clean markdown content before saving
+            cleaned_content = clean_markdown_content(insight_data.content)
+            
             # Chuẩn bị dữ liệu
             insert_data = {
                 "user_id": user_id,
                 "ticker": insight_data.ticker.upper(),
                 "asset_type": insight_data.asset_type,
                 "analysis_type": insight_data.analysis_type,
-                "content": insight_data.content,
+                "content": cleaned_content,
                 "metadata": insight_data.metadata or {}
             }
             

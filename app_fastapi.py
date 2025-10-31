@@ -1767,7 +1767,8 @@ async def get_technical_analysis_stream_api(
                         chunk_data = json.loads(chunk[6:].strip())
                         
                         if chunk_data.get('type') == 'content':
-                            analysis_content += chunk_data.get('text', '') + ' '
+                            # Don't add extra space - preserve original formatting
+                            analysis_content += chunk_data.get('text', '')
                 except:
                     pass
                 
@@ -1891,7 +1892,8 @@ async def get_news_analysis_stream_api(
                         chunk_data = json.loads(chunk[6:].strip())
                         
                         if chunk_data.get('type') == 'content':
-                            analysis_content += chunk_data.get('text', '') + ' '
+                            # Don't add extra space - preserve original formatting
+                            analysis_content += chunk_data.get('text', '')
                 except:
                     pass
                 
@@ -2013,7 +2015,8 @@ async def get_proprietary_trading_analysis_stream_api(
                         chunk_data = json.loads(chunk[6:].strip())
                         
                         if chunk_data.get('type') == 'content':
-                            analysis_content += chunk_data.get('text', '') + ' '
+                            # Don't add extra space - preserve original formatting
+                            analysis_content += chunk_data.get('text', '')
                 except:
                     pass
                 
@@ -2134,7 +2137,8 @@ async def get_foreign_trading_analysis_stream_api(
                         chunk_data = json.loads(chunk[6:].strip())
                         
                         if chunk_data.get('type') == 'content':
-                            analysis_content += chunk_data.get('text', '') + ' '
+                            # Don't add extra space - preserve original formatting
+                            analysis_content += chunk_data.get('text', '')
                 except:
                     pass
                 
@@ -2255,7 +2259,8 @@ async def get_shareholder_trading_analysis_stream_api(
                         chunk_data = json.loads(chunk[6:].strip())
                         
                         if chunk_data.get('type') == 'content':
-                            analysis_content += chunk_data.get('text', '') + ' '
+                            # Don't add extra space - preserve original formatting
+                            analysis_content += chunk_data.get('text', '')
                 except:
                     pass
                 
@@ -2372,7 +2377,8 @@ async def get_intraday_match_analysis_api(
                             chunk_data = json.loads(chunk[6:].strip())
                             
                             if chunk_data.get('type') == 'content':
-                                analysis_content += chunk_data.get('text', '') + ' '
+                                # Don't add extra space - preserve original formatting
+                                analysis_content += chunk_data.get('text', '')
                     except:
                         pass
                     
