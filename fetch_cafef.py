@@ -124,10 +124,13 @@ def get_proprietary_trading_data(symbol, start_date, end_date, page_index, page_
 
 # API 5: Lấy giá khớp lệnh theo ngày
 def get_match_price(symbol, date):
+    # Chuẩn hoá định dạng ngày từ 'YYYY-MM-DD' sang 'YYYYMMDD'
+    date = datetime.strptime(date, "%Y-%m-%d").strftime("%Y%m%d")
+    
     url = "https://msh-appdata.cafef.vn/rest-api/api/v1/MatchPrice"
     params = {
         "symbol": symbol,
-        "date": date # Định dạng 'YYYY-MM-DD' = '20251014'
+        "date": date # Định dạng 'YYYYMMDD' = '20251014'
     }
     return get_data(url, params)
 

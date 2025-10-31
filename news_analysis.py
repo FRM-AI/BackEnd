@@ -270,19 +270,6 @@ async def get_intraday_match_analysis_streaming(symbol: str, date: str):
     Yields:
         str: Server-Sent Events formatted data.
     """
-
-    # Chuẩn hóa date về định dạng 'YYYYMMDD'
-    try:
-        if "-" in date:
-            date = datetime.strptime(date, "%Y-%m-%d").strftime("%Y%m%d")
-        elif "/" in date:
-            date = datetime.strptime(date, "%m/%d/%Y").strftime("%Y%m%d")
-        elif len(date) == 6:  # Trường hợp YYMMDD
-            date = datetime.strptime(date, "%y%m%d").strftime("%Y%m%d")
-    except ValueError:
-        yield f"data: {json.dumps({'type': 'error', 'message': f'Định dạng ngày không hợp lệ: {date}'})}\n\n"
-        return
-
     try:
         yield f"data: {json.dumps({'type': 'status', 'message': 'Đang tạo phân tích khớp lệnh trong phiên..', 'progress': 0})}\n\n"
         yield f"data: {json.dumps({'type': 'section_start', 'section': 'intraday_analysis', 'title': 'Phân Tích Khớp Lệnh Trong Phiên'})}\n\n"
