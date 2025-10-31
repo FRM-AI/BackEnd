@@ -1,7 +1,7 @@
 import pandas as pd
 from pyparsing import col
 import requests
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from requests.packages.urllib3.exceptions import InsecureRequestWarning
 requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
 import warnings
@@ -214,7 +214,9 @@ if __name__ == "__main__":
     # # Test API 5: Lấy giá khớp lệnh theo ngày
     # print("Testing get_match_price...")
     # Giả sử GiaKhopLenh là một DataFrame
-    # GiaKhopLenh = get_match_price("VIC", "20251014")['data']
+    GiaKhopLenh = get_match_price("VIC", "2025-10-14")['data']
+    GiaKhopLenh = pd.DataFrame(GiaKhopLenh)
+    print(len(GiaKhopLenh))
 
     # # Test API 6: Lấy giá realtime
     # print("Testing get_realtime_price...")
@@ -245,5 +247,5 @@ if __name__ == "__main__":
     # print(get_finance_data("VIC"))
 
     # Test API 13: Lấy chỉ số thế giới
-    print("Testing get_global_indices...")
-    print(get_global_indices())
+    # print("Testing get_global_indices...")
+    # print(get_global_indices())

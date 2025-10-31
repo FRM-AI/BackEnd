@@ -285,8 +285,28 @@ async def get_intraday_match_analysis_streaming(symbol: str, date: str):
             yield f"data: {json.dumps({'type': 'error', 'message': f'Lỗi khi lấy dữ liệu khớp lệnh: {str(e)}'})}\n\n"
             return
 
-        # Lấy các điểm dữ liệu cách nhau 100 điểm
-        GiaKhopLenh_reduced = GiaKhopLenh.iloc[::100].reset_index(drop=True)
+        # Nếu số dòng ít hơn 20, lấy toàn bộ
+        if len(GiaKhopLenh) <= 20:
+            GiaKhopLenh_reduced = GiaKhopLenh.reset_index(drop=True)
+        elif len(GiaKhopLenh) <= 100:
+            # Lấy các điểm cách nhau 5 dòng
+            GiaKhopLenh_reduced = GiaKhopLenh.iloc[::5].append(GiaKhopLenh.iloc[[-1]]).reset_index(drop=True)
+        elif len(GiaKhopLenh) <= 500:
+            # Lấy các điểm cách nhau 15 dòng
+            GiaKhopLenh_reduced = GiaKhopLenh.iloc[::15].append(GiaKhopLenh.iloc[[-1]]).reset_index(drop=True)
+        elif len(GiaKhopLenh) <= 1000:
+            # Lấy các điểm cách nhau 30 dòng
+            GiaKhopLenh_reduced = GiaKhopLenh.iloc[::30].append(GiaKhopLenh.iloc[[-1]]).reset_index(drop=True)
+        elif len(GiaKhopLenh) <= 5000:
+            # Lấy các điểm cách nhau 100 dòng và đảm bảo dòng cuối cùng luôn được bao gồm
+            GiaKhopLenh_reduced = GiaKhopLenh.iloc[::100].append(GiaKhopLenh.iloc[[-1]]).reset_index(drop=True)
+        elif len(GiaKhopLenh) <= 10000:
+            # Lấy các điểm cách nhau 150 dòng và đảm bảo dòng cuối cùng luôn được bao gồm
+            GiaKhopLenh_reduced = GiaKhopLenh.iloc[::150].append(GiaKhopLenh.iloc[[-1]]).reset_index(drop=True)
+        else:
+            # Lấy các điểm cách nhau 200 dòng và đảm bảo dòng cuối cùng luôn được bao gồm
+            GiaKhopLenh_reduced = GiaKhopLenh.iloc[::200].append(GiaKhopLenh.iloc[[-1]]).reset_index(drop=True)
+
         GiaKhopLenh_reduced['volume'] *= 100
         GiaKhopLenh_reduced['totalVolume'] *= 100
         GiaKhopLenh_reduced.drop(columns=['totalValue', 'totalVolume'], inplace=True)
