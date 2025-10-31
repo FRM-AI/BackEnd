@@ -290,23 +290,23 @@ async def get_intraday_match_analysis_streaming(symbol: str, date: str):
             GiaKhopLenh_reduced = GiaKhopLenh.reset_index(drop=True)
         elif len(GiaKhopLenh) <= 100:
             # Lấy các điểm cách nhau 5 dòng
-            GiaKhopLenh_reduced = GiaKhopLenh.iloc[::5].append(GiaKhopLenh.iloc[[-1]]).reset_index(drop=True)
+            GiaKhopLenh_reduced = pd.concat([GiaKhopLenh.iloc[::5], GiaKhopLenh.iloc[[-1]]]).reset_index(drop=True)
         elif len(GiaKhopLenh) <= 500:
             # Lấy các điểm cách nhau 15 dòng
-            GiaKhopLenh_reduced = GiaKhopLenh.iloc[::15].append(GiaKhopLenh.iloc[[-1]]).reset_index(drop=True)
+            GiaKhopLenh_reduced = pd.concat([GiaKhopLenh.iloc[::15], GiaKhopLenh.iloc[[-1]]]).reset_index(drop=True)
         elif len(GiaKhopLenh) <= 1000:
             # Lấy các điểm cách nhau 30 dòng
-            GiaKhopLenh_reduced = GiaKhopLenh.iloc[::30].append(GiaKhopLenh.iloc[[-1]]).reset_index(drop=True)
+            GiaKhopLenh_reduced = pd.concat([GiaKhopLenh.iloc[::30], GiaKhopLenh.iloc[[-1]]]).reset_index(drop=True)
         elif len(GiaKhopLenh) <= 5000:
             # Lấy các điểm cách nhau 100 dòng và đảm bảo dòng cuối cùng luôn được bao gồm
-            GiaKhopLenh_reduced = GiaKhopLenh.iloc[::100].append(GiaKhopLenh.iloc[[-1]]).reset_index(drop=True)
+            GiaKhopLenh_reduced = pd.concat([GiaKhopLenh.iloc[::100], GiaKhopLenh.iloc[[-1]]]).reset_index(drop=True)
         elif len(GiaKhopLenh) <= 10000:
             # Lấy các điểm cách nhau 150 dòng và đảm bảo dòng cuối cùng luôn được bao gồm
-            GiaKhopLenh_reduced = GiaKhopLenh.iloc[::150].append(GiaKhopLenh.iloc[[-1]]).reset_index(drop=True)
+            GiaKhopLenh_reduced = pd.concat([GiaKhopLenh.iloc[::150], GiaKhopLenh.iloc[[-1]]]).reset_index(drop=True)
         else:
             # Lấy các điểm cách nhau 200 dòng và đảm bảo dòng cuối cùng luôn được bao gồm
-            GiaKhopLenh_reduced = GiaKhopLenh.iloc[::200].append(GiaKhopLenh.iloc[[-1]]).reset_index(drop=True)
-
+            GiaKhopLenh_reduced = pd.concat([GiaKhopLenh.iloc[::200], GiaKhopLenh.iloc[[-1]]]).reset_index(drop=True)
+            
         GiaKhopLenh_reduced['volume'] *= 100
         GiaKhopLenh_reduced['totalVolume'] *= 100
         GiaKhopLenh_reduced.drop(columns=['totalValue', 'totalVolume'], inplace=True)
@@ -371,7 +371,7 @@ async def get_intraday_match_analysis_streaming(symbol: str, date: str):
         yield f"data: {json.dumps({'type': 'section_end', 'section': 'intraday_analysis'})}\n\n"
 
     except Exception as e:
-        yield f"data: {json.dumps({'type': 'error', 'message': f'Lỗi hệ thống: {str(e)}'})}\n\n"
+        yield f"data: {json.dumps({'type': 'error', 'message': f'Lỗi hệ thống'})}\n\n"
 
 system_prompt_ta = """
 You are a **professional, objective, and data-driven financial analyst and trading expert**. 

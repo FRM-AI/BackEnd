@@ -2313,7 +2313,7 @@ async def get_shareholder_trading_analysis_stream_api(
 @check_balance_and_track_streaming("intraday_match_analysis")
 async def get_intraday_match_analysis_api(
     ticker: str = Query(..., description="Mã cổ phiếu"),
-    date: str = Query(..., description="Ngày phân tích (YYYY-MM-DD hoặc YYYYMMDD)"),
+    date: str = Query(..., description="Ngày phân tích (YYYY-MM-DD)"),
     current_user: Optional[UserWithWallet] = Depends(get_optional_user),
     request: Request = None
 ):

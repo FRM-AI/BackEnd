@@ -52,31 +52,31 @@ class ServiceManager:
         # Service types and their costs (in FRM Coins)
         # Updated to match frontend service IDs and standardized costs
         self.SERVICE_COSTS = {
-            'news_analysis': 5,
-            'ai_insights': 10,
-            'technical_analysis': 8,
-            'technical_signals': 6,
-            'portfolio_optimization': 10,
-            'manual_portfolio_calc': 8,
-            'fundamental_score': 12,
-            'stock_data': 3,
-            'send_alert': 2,
-            'stock_analysis': 5,  # Legacy support
-            'fundamental_scoring': 12  # Legacy support
+            'max_daily_service_usage': 100,
+            'calculate_portfolio': 2,
+            'foreign_trading_analysis': 3,
+            'intraday_match_analysis': 3,
+            'news_analysis': 2,
+            'portfolio_optimization': 5,
+            'proprietary_trading_analysis': 3,
+            'shareholder_trading_analysis': 3,
+            'technical_analysis': 3,
+            'technical_signals': 0,
+            'get_news': 0
         }
-        
+
         self.SERVICE_DESCRIPTIONS = {
-            'news_analysis': 'Phân tích tin tức',
-            'ai_insights': 'AI Insights',
-            'technical_analysis': 'Phân tích kỹ thuật',
-            'technical_signals': 'Tín hiệu kỹ thuật',
-            'portfolio_optimization': 'Tối ưu hóa danh mục',
-            'manual_portfolio_calc': 'Tính toán danh mục thủ công',
-            'fundamental_score': 'Điểm số cơ bản',
-            'stock_data': 'Dữ liệu cổ phiếu',
-            'send_alert': 'Gửi cảnh báo',
-            'stock_analysis': 'Phân tích cổ phiếu',  # Legacy support
-            'fundamental_scoring': 'Chấm điểm cơ bản'  # Legacy support
+            'max_daily_service_usage': 'Giới hạn số lần sử dụng dịch vụ mỗi ngày cho mỗi người dùng',
+            'calculate_portfolio': 'Chi phí bằng FRM Coins cho phân tích danh mục đầu tư',
+            'foreign_trading_analysis': 'Chi phí bằng FRM Coins cho phân tích giao dịch nước ngoài',
+            'intraday_match_analysis': 'Chi phí bằng FRM Coins cho phân tích kỹ thuật trong ngày',
+            'news_analysis': 'Chi phí bằng FRM Coins cho phân tích tin tức',
+            'portfolio_optimization': 'Chi phí bằng FRM Coins cho tối ưu hóa danh mục đầu tư',
+            'proprietary_trading_analysis': 'Chi phí bằng FRM Coins cho phân tích giao dịch tự doanh',
+            'shareholder_trading_analysis': 'Chi phí bằng FRM Coins cho phân tích giao dịch cổ đông',
+            'technical_analysis': 'Chi phí bằng FRM Coins cho phân tích kỹ thuật',
+            'technical_signals': 'Dịch vụ tín hiệu kỹ thuật miễn phí',
+            'get_news': 'Dịch vụ lấy tin tức miễn phí'
         }
     
     async def get_service_cost(self, service_type: str) -> int:
