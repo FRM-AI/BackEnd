@@ -266,7 +266,7 @@ async def get_intraday_match_analysis_streaming(symbol: str, date: str):
     Streaming version of get_intraday_match_analysis.
     Args:
         symbol (str): Stock symbol.
-        date (str): Date in 'YYYYMMDD' or other common formats.
+        date (str): Date in 'YYYY-MM-DD' format.
     Yields:
         str: Server-Sent Events formatted data.
     """
