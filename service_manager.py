@@ -62,7 +62,8 @@ class ServiceManager:
             'shareholder_trading_analysis': 3,
             'technical_analysis': 3,
             'technical_signals': 0,
-            'get_news': 0
+            'get_news': 0,
+            'get_stock_data': 0
         }
 
         self.SERVICE_DESCRIPTIONS = {
@@ -76,7 +77,8 @@ class ServiceManager:
             'shareholder_trading_analysis': 'Chi phí bằng FRM Coins cho phân tích giao dịch cổ đông',
             'technical_analysis': 'Chi phí bằng FRM Coins cho phân tích kỹ thuật',
             'technical_signals': 'Dịch vụ tín hiệu kỹ thuật miễn phí',
-            'get_news': 'Dịch vụ lấy tin tức miễn phí'
+            'get_news': 'Dịch vụ lấy tin tức miễn phí',
+            'get_stock_data': 'Dịch vụ lấy dữ liệu cổ phiếu miễn phí'
         }
     
     async def get_service_cost(self, service_type: str) -> int:

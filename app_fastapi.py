@@ -1050,7 +1050,7 @@ async def get_insights_stats(
 # ================================
 
 @app.post("/api/stock_data")
-@check_balance_and_track("stock_analysis")
+@check_balance_and_track("get_stock_data")
 async def get_stock_data(
     request_data: StockDataRequest,
     current_user: Optional[UserWithWallet] = Depends(get_optional_user),
