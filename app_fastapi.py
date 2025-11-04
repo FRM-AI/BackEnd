@@ -129,7 +129,7 @@ from fundamental_scoring_vn import score_stock, rank_stocks
 from portfolio_optimization import optimize_portfolio, calculate_manual_portfolio
 from alert import send_alert
 from news_analysis import (
-    get_insights_streaming, 
+    get_advice_streaming, 
     get_technical_analysis_streaming,
     get_news_analysis_streaming, 
     get_proprietary_trading_analysis_streaming,
@@ -167,6 +167,7 @@ class StockDataRequest(BaseModel):
 class TechnicalSignalsRequest(BaseModel):
     symbol: str = Field(default="VCB", description="Mã cổ phiếu")
     asset_type: str = Field(default="stock", description="Loại tài sản: stock, crypto")
+    user_info: str = Field(default=None, description="Thông tin người dùng (nếu có)")
 
 class FundamentalScoreRequest(BaseModel):
     tickers: List[str] = Field(default=["VCB.VN", "BID.VN", "CTG.VN"], description="Danh sách mã cổ phiếu")
@@ -1235,25 +1236,7 @@ async def get_technical_signals(
 ):
     """Phát hiện tín hiệu kỹ thuật với Redis cache"""
     try:
-        ## Create cache key for technical signals
-        # cache_key = f"technical_signals:{request_data.symbol.upper()}:{request_data.asset_type}"
-        
-        # try:
-        #     # Try to get cached signals from Redis
-        #     redis_manager = get_redis_manager()
-        #     cached_signals = await redis_manager.get_json(cache_key)
-            
-        #     if cached_signals:
-        #         logger.info(f"Returning cached technical signals for {request_data.symbol}")
-        #         cached_signals['from_cache'] = True
-        #         cached_signals['cached_at'] = cached_signals.get('generated_at', datetime.now().isoformat())
-        #         cached_signals['generated_at'] = datetime.now().isoformat()
-        #         return cached_signals
-                
-        # except Exception as cache_err:
-        #     logger.warning(f"Cache error for technical signals: {cache_err}")
-        
-        # Load and analyze data using cached function
+        # Load and analyze data
         df = load_stock_data_vnquant(request_data.symbol, request_data.asset_type)
         
         if df is None or df.empty:
@@ -1263,17 +1246,16 @@ async def get_technical_signals(
             )
         
         df = add_technical_indicators_yf(df)
-        
-        # Detect signals
         signals = detect_signals(df)
-        
+
         # Clean signals data if it contains DataFrames or problematic values
         if isinstance(signals, dict):
             for key, value in signals.items():
                 if isinstance(value, pd.DataFrame):
                     signals[key] = clean_dataframe_for_json(value)
-        
-        result = {
+
+        # Prepare result metadata (non-streaming part)
+        result_metadata = {
             'success': True,
             'signals': signals,
             'symbol': request_data.symbol,
@@ -1281,19 +1263,45 @@ async def get_technical_signals(
             'authenticated': current_user is not None,
             'from_cache': False
         }
-        
-        # # Cache the results for 6 hours
-        # try:
-        #     redis_manager = get_redis_manager()
-        #     await redis_manager.set_json(cache_key, result, expire=21600)  # 6 hours
-        #     logger.info(f"Cached technical signals for {request_data.symbol}")
-        # except Exception as cache_err:
-        #     logger.warning(f"Failed to cache technical signals: {cache_err}")
-        
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Server xử lý lỗi. Vui lòng thử lại. Lỗi: {e}")
 
+        # Generator for streaming advice
+        async def advice_generator():
+            try:
+                # Send metadata first
+                yield f"data: {json.dumps({'type': 'metadata', 'data': result_metadata})}\n\n"
+
+                # Generate streaming advice
+                async for chunk in get_advice_streaming(
+                    symbol=request_data.symbol,
+                    signals=signals,
+                    user_info=request_data.user_info
+                ):
+                    yield chunk
+
+                    # Add small delay to make streaming more visible
+                    await asyncio.sleep(0.05)
+
+                # End of streaming
+                yield f"data: {json.dumps({'type': 'complete', 'message': 'Advice streaming completed'})}\n\n"
+
+            except Exception as e:
+                yield f"data: {json.dumps({'type': 'error', 'message': f'Lỗi: {str(e)}'})}\n\n"
+
+        # Return StreamingResponse
+        return StreamingResponse(
+            advice_generator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Headers": "*",
+            }
+        )
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Server xử lý lỗi: {str(e)}")
+    
 @app.post("/api/fundamental_score")
 @check_balance_and_track("fundamental_scoring")
 async def get_fundamental_score(
@@ -2799,6 +2807,22 @@ async def api_get_match_price(request: MatchPriceRequest):
             "date": request.date,
             "data": data
         }
+    except Exception as e:
+        logger.error(f"Error getting match price: {e}")
+        raise HTTPException(status_code=500, detail=f"Lỗi khi lấy giá khớp lệnh: {str(e)}")
+
+@app.get("/api/cafef/realtime-price/{symbol}")
+async def api_get_realtime_price(symbol: str):
+    """Lấy giá realtime (Free API - không cần check balance)"""
+    try:
+        data = get_realtime_price(symbol.upper())
+        
+        return {
+            "success": True,
+            "symbol": symbol.upper(),
+            "data": data
+        }
+
     except Exception as e:
         logger.error(f"Error getting match price: {e}")
         raise HTTPException(status_code=500, detail=f"Lỗi khi lấy giá khớp lệnh: {str(e)}")

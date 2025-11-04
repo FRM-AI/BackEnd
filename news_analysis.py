@@ -154,6 +154,44 @@ def execute_request(url, headers):
     response = requests.get(url, headers=headers)
     return response
 
+async def get_advice_streaming(symbol, signals, user_info=None):
+    try:
+        yield f"data: {json.dumps({'type': 'status', 'message': 'Cho khuyến nghị đầu tư...', 'progress': 10})}\n\n"
+        yield f"data: {json.dumps({'type': 'section_start', 'section': 'advice', 'title': 'Khuyến nghị đầu tư'})}\n\n"
+
+        # Tạo prompt cho phân tích
+        prompt = f"""
+        Bạn là chuyên gia phân tích tài chính chuyên nghiệp. 
+        Hãy đánh giá chính xác mã cổ phiếu {symbol} dựa trên dữ liệu chuyên môn dưới đây:
+        {signals}"""
+
+        if user_info:   
+            prompt += f"\n\nThông tin người dùng: {user_info}"
+
+        prompt += """\n\n
+        Yêu cầu:
+        - Trả lời cực kì KHÁCH QUAN mang tính chuyên môn cao.
+        - Đưa ra khuyến nghị đầu tư (MUA/BÁN/CHỐT LỜI/CẮT LỖ) trực tiếp có cơ sở.
+        - Súc tích, chia thành các gạch đầu dòng.
+        - Không giải thích lại yêu cầu, không thêm lời mở đầu hoặc kết luận ngoài phân tích chính.
+        """
+
+        yield f"data: {json.dumps({'type': 'status', 'message': 'Đang phân tích khuyến nghị đầu tư...', 'progress': 50})}\n\n"
+
+        # Bước 3: Gọi mô hình Generative AI
+        try:
+            model = genai.GenerativeModel('gemini-2.5-flash')
+            async for chunk in generate_with_heartbeat(model, prompt, section_name="advice"):
+                yield chunk
+        except Exception:
+            yield f"data: {json.dumps({'type': 'error', 'section': 'advice', 'message': 'Lỗi trong quá trình phân tích'})}\n\n"
+
+        yield f"data: {json.dumps({'type': 'section_end', 'section': 'advice'})}\n\n"
+        yield f"data: {json.dumps({'type': 'complete', 'message': 'Phân tích giao dịch tự doanh hoàn tất!', 'progress': 100})}\n\n"
+        
+    except Exception:
+        yield f"data: {json.dumps({'type': 'error', 'message': f'Lỗi hệ thống trong phân tích giao dịch tự doanh'})}\n\n"
+
 def extractNewsData(search_term, date_start, date_end):
     """
     Extract search results for specified query and date range.
