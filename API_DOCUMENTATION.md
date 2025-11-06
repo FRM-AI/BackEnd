@@ -697,31 +697,24 @@ POST /api/technical_signals
 ```json
 {
   "symbol": "VCB",
-  "asset_type": "stock"
+  "asset_type": "stock",
+  "user_info": "Thông tin người dùng (Nếu người dùng đã mua thì truyền: Đã mua ở mức giá ...; không thì bỏ qua vì BE set mặc định là None)"
 }
 ```
 
 **Response:**
-```json
-{
-  "success": true,
-  "signals": {
-    "buy_signals": ["Golden Cross", "RSI Oversold"],
-    "sell_signals": [],
-    "neutral_signals": ["MACD Convergence"],
-    "signal_strength": "STRONG_BUY"
-  },
-  "symbol": "VCB",
-  "generated_at": "2024-01-01T00:00:00Z",
-  "from_cache": false,
-  "cache_ttl": 3600
-}
+```
+data: {"type": "metadata", "data": {"success": true, "signals": {...}, "symbol": "VCB", "generated_at": "2025-11-06T12:00:00Z", "authenticated": true, "from_cache": false}}
+
+data: {"type": "advice", "chunk": "Phân tích tín hiệu kỹ thuật..."}
+data: {"type": "advice", "chunk": "Khuyến nghị: Mua vào khi giá giảm..."}
+
+data: {"type": "complete", "message": "Advice streaming completed"}
 ```
 
 **Features:**
-- Sử dụng Redis cache với TTL 1 giờ
-- Nếu có cache, trả về ngay với `from_cache: true`
-- Cache key: `technical_signals:{symbol}:{asset_type}`
+- Streaming Response: Metadata được gửi ngay lập tức, sau đó advice được gửi từng phần (chunk) theo thời gian thực.
+- Các giá trị của API cũ được trả về trong "data" của "type": "metadata".
 
 #### 3. Tính điểm cơ bản
 ```http
