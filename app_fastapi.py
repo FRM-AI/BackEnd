@@ -1271,8 +1271,8 @@ async def get_technical_signals(
                 yield f"data: {json.dumps({'type': 'metadata', 'data': result_metadata})}\n\n"
 
                 # Create cache key for advice
-                cache_key = f"advice:{request_data.ticker.upper()}"
-                
+                cache_key = f"advice:{request_data.symbol.upper()}"
+
                 try:
                     # Try to get cached data from Redis
                     redis_manager = get_redis_manager()
