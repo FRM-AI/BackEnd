@@ -166,13 +166,13 @@ async def get_advice_streaming(symbol, signals, user_info=None):
         {signals}"""
 
         if user_info:   
-            prompt += f"\n\nThông tin người dùng: {user_info}"
+            prompt += f"\n\nNgười dùng đã mua cổ phiếu ở mức giá: {user_info}. Tập trung khuyến nghị đầu tư, điều chỉnh mức CHỐT LỜI/CẮT LỖ phù hợp dựa trên thông tin này."
 
         prompt += """\n\n
         Yêu cầu:
         - Trả lời cực kì KHÁCH QUAN mang tính chuyên môn cao.
-        - Đưa ra khuyến nghị đầu tư (MUA/BÁN/CHỐT LỜI/CẮT LỖ) trực tiếp có cơ sở.
-        - Súc tích, chia thành các gạch đầu dòng.
+        - Mục tiêu chính: Đưa ra kết luận cuối cùng (MUA/BÁN/GIỮ) và khuyến nghị đầu tư (mức CHỐT LỜI/CẮT LỖ) trực tiếp có cơ sở.
+        - Súc tích, ngắn gọn, chia thành các gạch đầu dòng.
         - Không giải thích lại yêu cầu, không thêm lời mở đầu hoặc kết luận ngoài phân tích chính.
         """
 

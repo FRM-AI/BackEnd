@@ -1270,43 +1270,6 @@ async def get_technical_signals(
                 # Send metadata first
                 yield f"data: {json.dumps({'type': 'metadata', 'data': result_metadata})}\n\n"
 
-                # Create cache key for advice
-                cache_key = f"advice:{request_data.symbol.upper()}"
-
-                try:
-                    # Try to get cached data from Redis
-                    redis_manager = get_redis_manager()
-                    cached_analysis = await redis_manager.get_json(cache_key)
-                    
-                    if cached_analysis:
-                        # Send cached data with streaming format
-                        yield f"data: {json.dumps({'type': 'status', 'message': 'Đang tải dữ liệu từ cache...', 'progress': 10})}\n\n"
-                        
-                        content = cached_analysis.get('content', '')
-                        if content:
-                            yield f"data: {json.dumps({'type': 'section_start', 'section': 'advice', 'title': 'Khuyến nghị đầu tư'})}\n\n"
-                            
-                            # Stream content in chunks
-                            words = content.split()
-                            chunk_size = 20
-                            for i in range(0, len(words), chunk_size):
-                                chunk_text = ' '.join(words[i:i+chunk_size])
-                                yield f"data: {json.dumps({'type': 'content', 'section': 'advice', 'text': chunk_text})}\n\n"
-                                await asyncio.sleep(0.1)
-
-                            yield f"data: {json.dumps({'type': 'section_end', 'section': 'advice'})}\n\n"
-
-                        yield f"data: {json.dumps({'type': 'complete', 'message': 'Khuyến nghị đầu tư hoàn tất từ cache!', 'progress': 100})}\n\n"
-                        return
-                        
-                except Exception as cache_err:
-                    # logger.warning(f"Cache error for advice: {cache_err}")
-                    yield f"data: {json.dumps({'type': 'status', 'message': 'Đang phân tích mới...', 'progress': 5})}\n\n"
-
-                # No cache found, generate new analysis
-                # Store content for caching
-                analysis_content = ''
-
                 # Generate streaming advice
                 async for chunk in get_advice_streaming(
                     symbol=request_data.symbol,
@@ -1315,28 +1278,9 @@ async def get_technical_signals(
                 ):
                     yield chunk
 
-                    # Parse chunk to collect content for caching
-                    try:
-                        if chunk.startswith("data: "):
-                            chunk_data = json.loads(chunk[6:].strip())
-                            
-                            if chunk_data.get('type') == 'content':
-                                # Don't add extra space - preserve original formatting
-                                analysis_content += chunk_data.get('text', '')
-                    except:
-                        pass
-
                     # Add small delay to make streaming more visible
                     await asyncio.sleep(0.05)
-
-                # Cache the results for 6 hours
-                try:
-                    redis_manager = get_redis_manager()
-                    await redis_manager.set_json(cache_key, {'content': analysis_content}, expire=21600)  # 6 hours
-                    logger.info(f"Cached technical analysis for {request_data.ticker}")
-                except Exception as cache_err:
-                    logger.warning(f"Failed to cache technical analysis: {cache_err}")
-
+                    
                 # End of streaming
                 yield f"data: {json.dumps({'type': 'complete', 'message': 'Advice streaming completed'})}\n\n"
 
