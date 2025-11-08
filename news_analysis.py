@@ -154,21 +154,19 @@ def execute_request(url, headers):
     response = requests.get(url, headers=headers)
     return response
 
-async def get_advice_streaming(symbol, signals, user_info=None):
+async def get_advice_streaming(symbol, signals, user_info):
     try:
         yield f"data: {json.dumps({'type': 'status', 'message': 'Cho khuyến nghị đầu tư...', 'progress': 10})}\n\n"
         yield f"data: {json.dumps({'type': 'section_start', 'section': 'advice', 'title': 'Khuyến nghị đầu tư'})}\n\n"
 
         # Tạo prompt cho phân tích
         prompt = f"""
-        Bạn là chuyên gia phân tích tài chính chuyên nghiệp. 
+        Bạn là chuyên gia đầu tư lướt sóng (shorterm trader) chuyên nghiệp. 
         Hãy đánh giá chính xác mã cổ phiếu {symbol} dựa trên dữ liệu chuyên môn dưới đây:
-        {signals}"""
+        {signals}
 
-        if user_info:   
-            prompt += f"\n\nNgười dùng đã mua cổ phiếu ở mức giá: {user_info}. Tập trung khuyến nghị đầu tư, điều chỉnh mức CHỐT LỜI/CẮT LỖ phù hợp dựa trên thông tin này."
+        Người dùng đã mua cổ phiếu ở mức giá: {user_info}. Đây là thông tin quan trọng nhất, quan trọng hơn mọi dữ liệu trên. Điều chỉnh mức CHỐT LỜI/CẮT LỖ phù hợp với mức giá mua này trong ngắn hạn sắp tới. Mục tiêu quan trọng nhất là người dùng muốn kiếm lời lập tức.
 
-        prompt += """\n\n
         Yêu cầu:
         - Trả lời cực kì KHÁCH QUAN mang tính chuyên môn cao.
         - Mục tiêu chính: Đưa ra kết luận cuối cùng (MUA/BÁN/GIỮ) và khuyến nghị đầu tư (mức CHỐT LỜI/CẮT LỖ) trực tiếp có cơ sở.
