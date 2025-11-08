@@ -1340,8 +1340,7 @@ async def get_technical_signals(
                 # End of streaming
                 yield f"data: {json.dumps({'type': 'complete', 'message': 'Advice streaming completed'})}\n\n"
 
-            except Exception as e:
-                logger.error(f"Error in advice_generator: {str(e)}")
+            except Exception:
                 yield f"data: {json.dumps({'type': 'error', 'message': f'Server xử lý lỗi. Vui lòng thử lại.'})}\n\n"
 
         # Return StreamingResponse
