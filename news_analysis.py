@@ -161,18 +161,33 @@ async def get_advice_streaming(symbol, signals, user_info):
 
         # Tạo prompt cho phân tích
         prompt = f"""
-        Bạn là chuyên gia đầu tư lướt sóng (shorterm trader) chuyên nghiệp. 
-        Hãy đánh giá chính xác mã cổ phiếu {symbol} dựa trên dữ liệu chuyên môn dưới đây:
-        {signals}
+            Bạn là chuyên gia đầu tư lướt sóng (short-term trader) chuyên nghiệp, có khả năng đọc hiểu dữ liệu kỹ thuật, dòng tiền, và tâm lý thị trường.
 
-        Người dùng đã mua cổ phiếu ở mức giá: {user_info}. Đây là thông tin quan trọng nhất, quan trọng hơn mọi dữ liệu trên. Điều chỉnh mức CHỐT LỜI/CẮT LỖ phù hợp với mức giá mua này trong ngắn hạn sắp tới. Mục tiêu quan trọng nhất là người dùng muốn kiếm lời lập tức.
+            Phân tích chuyên sâu mã cổ phiếu **{symbol}** dựa trên dữ liệu sau:
+            {signals}
 
-        Yêu cầu:
-        - Trả lời cực kì KHÁCH QUAN mang tính chuyên môn cao.
-        - Mục tiêu chính: Đưa ra kết luận cuối cùng (MUA/BÁN/GIỮ) và khuyến nghị đầu tư (mức CHỐT LỜI/CẮT LỖ) trực tiếp có cơ sở.
-        - Súc tích, ngắn gọn, chia thành các gạch đầu dòng.
-        - Không giải thích lại yêu cầu, không thêm lời mở đầu hoặc kết luận ngoài phân tích chính.
-        """
+            Người dùng **đã mua cổ phiếu ở mức giá: {user_info} (giá trị None khi người dùng chưa mua)**  
+            Đây là yếu tố **cực kỳ quan trọng**, phải được sử dụng làm **trung tâm phân tích**.
+
+            Hãy:
+            1. So sánh giá mua của người dùng với các ngưỡng kỹ thuật, vùng hỗ trợ/kháng cự, tín hiệu xu hướng trong dữ liệu.
+            2. Dự đoán hướng giá ngắn hạn (1–2 tuần tới).
+            3. Đưa ra **hành động đầu tư cụ thể cho người dùng này**, KHÔNG phải cho nhà đầu tư chung chung:
+            - **Kết luận rõ ràng:** MUA / GIỮ / BÁN
+            - **Chi tiết kế hoạch hành động cá nhân hoá:**
+                - Nếu đang lãi: đề xuất **mức chốt lời cụ thể (TP)** theo giá.
+                - Nếu đang lỗ: đề xuất **mức cắt lỗ cụ thể (SL)**, và lý do nên giữ hoặc thoát vị thế.
+            4. Dựa trên tín hiệu {symbol} và **mức giá mua {user_info}**, hãy điều chỉnh khuyến nghị sao cho người dùng có thể **tối ưu lợi nhuận ngắn hạn và hạn chế rủi ro**.
+            5. Trình bày ngắn gọn, rõ ràng, theo dạng gạch đầu dòng:
+            - Phân tích ngắn hạn
+            - Mức giá quan trọng (hỗ trợ / kháng cự)
+            - Kết luận hành động (MUA / GIỮ / BÁN)
+            - Mức CHỐT LỜI (Take Profit)
+            - Mức CẮT LỖ (Stop Loss)
+            - Nhận định rủi ro kèm lời khuyên cụ thể cho **người đã mua ở mức giá {user_info}**
+
+            Không thêm lời chào, lời kết, hoặc diễn giải lại yêu cầu.
+            """
 
         yield f"data: {json.dumps({'type': 'status', 'message': 'Đang phân tích khuyến nghị đầu tư...', 'progress': 50})}\n\n"
 
