@@ -527,6 +527,7 @@ app.add_middleware(
     TrustedHostMiddleware,
     allowed_hosts=[
         "*.frmai.org",
+        "https://backend-klsk.onrender.com",
         "localhost",
         "127.0.0.1",
         "*.vercel.app"
@@ -2978,3 +2979,4 @@ if __name__ == '__main__':
         log_level="info"
 
     )
+
