@@ -495,8 +495,10 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "https://frmai.org",
+        "https://backend-klsk.onrender.com",
+        "https://chic-pegasus-312741.netlify.app",
         "https://www.frmai.org",
-        "https://api.frmai.org",  # ✅ add backend subdomain itself
+        "https://api.frmai.org",  
         "http://localhost:3000",
         "http://127.0.0.1:3000",
         "http://localhost:8000",
@@ -2974,4 +2976,5 @@ if __name__ == '__main__':
         reload=True,
         access_log=True,
         log_level="info"
+
     )
